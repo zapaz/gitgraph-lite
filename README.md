@@ -24,13 +24,16 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 - ⌘R refreshes, ⌘F searches, ⇧⌘C copies selected commit hashes.
 - Terminal: `open -a "/path/to/GitGraph Lite.app" --args --repo "/path/to/repository"`.
 
-## Branch navigation (version 0.5)
+## Branch navigation (version 0.7)
 
-The app never switches the branch checked out in an existing worktree. Traditional checkout/switch operations remain absent from the Git action API. The **Checkout...** menu entry opens or creates a worktree instead; **Create Branch...** creates the branch in a new worktree.
+Worktree creation is automatic. **Create Branch...**, **Create Worktree Here** and the manager's **Create Worktree** button generate a branch name from the commit subject/hash, choose an available folder and open it without a form, location chooser or success dialog. Folders are placed beside the main checkout in `<repository>-worktrees/`; existing folders/branches are never overwritten.
+
+**Checkout... on a remote ref switches branches in the current worktree.** `origin/main` maps to local `main`; `origin/feature/ui` maps to local `feature/ui`. If the local branch is missing, it is created with upstream tracking. Existing local commits and existing upstream settings are preserved; an existing branch without an upstream is linked to the selected remote. Checkout refuses pending operations, dirty working trees when switching, and branches used in another worktree. It never uses force, reset or automatic stash.
 
 - If a branch already belongs to a worktree, **Open Worktree** opens that folder.
-- Otherwise, **Create Worktree on This Branch…** opens the creation flow with the existing branch preselected.
-- **Create Worktree Here…** creates a new worktree from a commit; a new branch can be created inside that worktree.
+- Otherwise, **Create Worktree on This Branch…** automatically creates and opens a worktree with that existing local branch.
+- Local-branch checkout opens or creates its worktree automatically. Remote checkout uses the current folder as described above.
+- Right-click an individual branch badge to target that ref; in a combined local/remote badge, the remote-name suffix targets the remote. A generic row checkout prefers `origin`, then a stable lexical ordering, with no chooser.
 - The **HISTORY** branch menu is a read-only graph filter. It does not change HEAD, files or the checked-out branch.
 - Branches currently used by any worktree cannot be renamed or deleted through the app, including the active branch.
 
@@ -54,7 +57,7 @@ Copy Commit Hash to Clipboard
 Copy Commit Subject to Clipboard
 ```
 
-Reset opens a dialog offering soft/mixed/hard modes. Checkout opens the matching branch's worktree or starts worktree creation. If several local branches point at the commit, it asks which one; if none does, it offers a new branch/worktree at that commit. The current folder's branch is preserved.
+Reset opens a dialog offering soft/mixed/hard modes. Remote checkout uses the current folder and the same local branch name, without the remote prefix. Local checkout opens or automatically creates a worktree. A commit with no branch gets a new automatically named branch/worktree.
 
 Hold **Option** while right-clicking for Lite's additional comparison, full-message copy, drop and branch/tag management actions. Pending operations still expose Continue/Abort for conflict recovery.
 
@@ -75,17 +78,17 @@ Mutation dialogs describe the target and effect. Merge, cherry-pick, revert, reb
 
 - A worktree selector switches between folders without changing their checked-out branches or local changes.
 - **Manage Worktrees…** lists every worktree's path, branch or detached HEAD, changed-file count, main/locked/missing/prunable state.
-- Create a worktree on a new branch, an unused existing local branch, or a detached commit. Optionally open it immediately.
+- Create and open a worktree on an automatically named new branch, or reuse an existing local branch, without supplying a name or location. Existing detached worktrees remain supported for browsing and management.
 - **Create Worktree Here…** in a commit's context menu starts a new worktree from that commit.
 - Move a clean linked worktree, lock/unlock it, or remove it while preserving its branch. Removing a detached worktree first saves its HEAD to a `gitgraph-backup/worktree-...` branch.
 - Removal refuses main, active, locked, missing or dirty worktrees, pending operations, and any case rejected by Git. No force removal is offered.
-- Branches checked out in a worktree cannot be switched, renamed or deleted here; their branch submenu offers **Open Worktree** (or identifies the current worktree).
+- Branches used in a worktree cannot be renamed/deleted here or checked out simultaneously elsewhere. A remote checkout can switch the current worktree to an available local branch.
 - The graph marks worktree HEADs with blue badges and includes commits reachable only from detached worktree HEADs when showing all branches.
 - The main window refreshes worktree state automatically; the manager also has a Refresh button. Stale/missing registrations are shown, but pruning and repair remain CLI operations.
 
 ## Scope
 
-Version 0.6 combines a compact, vividly coloured history view with worktree-based branch navigation, the enhanced unified viewer and local history operations. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
+Version 0.7 adds automatic worktree creation and same-folder remote checkout to the compact history view, enhanced unified viewer and local history operations. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
 
 For repositories in macOS protected folders, use **Open Repository…** and grant access when macOS requests it.
 
@@ -115,5 +118,6 @@ The application icon is in `Assets/` and is bundled for Finder and the Dock. Its
 - Worktree checks cover real linked worktrees with a `.git` file, new/existing branches, detached-only history, Unicode/newline paths, dirty/locked/main/active protections, move/remove, branch retention and branch-occupation guards. The worktree selector, graph badges and two-worktree manager with clean/dirty counts were checked in the running app.
 - Regression checks verify that creating worktrees on new/existing branches preserves the active worktree's branch, HEAD, tracked edits and untracked files; history filtering also leaves the active branch unchanged.
 - History checks verify local/remote label grouping, diverged refs, symbolic-ref filtering, comma-containing tag names, chronological interleaving across branches and child-before-parent ordering.
+- Navigation checks use local disposable remotes to verify `origin/main` → local `main` in the same folder, tracking, preservation of existing local commits, nested branch/remote names, dirty/occupied/stale guards, automatic worktree names/paths and collision handling, reuse, and checkout into an unborn local branch.
 - Live app checks confirm commit/file/diff display, two-commit comparison, search filtering, and automatic appearance of an externally created tag.
 - The window layout was checked visually. Large-repository performance and public distribution have not been validated.

@@ -2,12 +2,16 @@ import AppKit
 import GitGraphCore
 
 final class CommitTableView: NSTableView {
-    var menuProvider: ((Int) -> NSMenu?)?
+    var menuProvider: ((Int, String?) -> NSMenu?)?
     override func menu(for event: NSEvent) -> NSMenu? {
         let index = row(at: convert(event.locationInWindow, from: nil))
         guard index >= 0 else { return nil }
+        var reference: String?
+        if let column = tableColumns.firstIndex(where: { $0.identifier.rawValue == "subject" }), let cell = view(atColumn: column, row: index, makeIfNecessary: false) as? CommitCell {
+            reference = cell.reference(at: cell.convert(event.locationInWindow, from: nil))
+        }
         if !selectedRowIndexes.contains(index) { selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false) }
-        return menuProvider?(index)
+        return menuProvider?(index, reference)
     }
 }
 
@@ -18,7 +22,7 @@ private final class MenuCommand: NSObject {
 }
 
 extension Controller {
-    func commitMenu(at row: Int) -> NSMenu? {
+    func commitMenu(at row: Int, reference: String? = nil) -> NSMenu? {
         guard let commit = commit(at: row), let repo = repository else { return nil }
         let menu = NSMenu(); menu.autoenablesItems = false
         @discardableResult func add(_ title: String, to parent: NSMenu? = nil, enabled: Bool = true, _ handler: @escaping () -> Void) -> NSMenuItem {
@@ -41,8 +45,8 @@ extension Controller {
             self?.manageWorktrees(start: commit.id)
         }.toolTip = "Create the new branch in a separate worktree. The current folder stays on its branch."
         menu.addItem(.separator())
-        add("Checkout...", enabled: canOpenWorktree) { [weak self] in self?.checkoutWorktree(commit, repo: repo) }
-            .toolTip = "Open this branch's worktree, or create one. Never switch branches in the current folder."
+        add("Checkout...", enabled: canOpenWorktree) { [weak self] in self?.checkoutWorktree(commit, repo: repo, reference: reference) }
+            .toolTip = "Remote branches check out their same-named local branch here. Local branches open or create their worktree."
         add("Cherry Pick...", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
         add("Revert...", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
         menu.addItem(.separator())
@@ -75,9 +79,15 @@ extension Controller {
                 self?.confirmAction("Drop Commit", detail: "Remove \(commit.id.prefix(8)) from the current branch's history and replay its descendants. This rewrites commit hashes. The commit must be an ancestor of \(current). A backup branch will save the previous HEAD.", repo: repo, action: .drop(commit.id), destructive: true)
             }
             for ref in repo.references where ref.target == commit.id && !ref.symbolic {
-                guard ref.isBranch || ref.isTag else { continue }
-                let sub = submenu((ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
-                if ref.isBranch {
+                let remote = ref.name.hasPrefix("refs/remotes/")
+                guard ref.isBranch || ref.isTag || remote else { continue }
+                let sub = submenu((remote ? "Remote Branch: " : ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
+                if remote {
+                    add("Checkout \(ref.shortName) in This Worktree", to: sub, enabled: canWrite) { [weak self] in
+                        self?.navigateRepository(title: "Checking out " + ref.shortName, repo: repo) { try Git.checkoutRemote(ref.name, at: repo.path, expectedSignature: repo.signature) }
+                    }
+                    add("Copy Branch Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
+                } else if ref.isBranch {
                     let occupied = repo.worktrees.first { $0.branch == ref.name }
                     if let occupied {
                         let active = Git.samePath(occupied.path, repo.path)
@@ -170,28 +180,48 @@ extension Controller {
     func nameField(_ placeholder: String, value: String = "") -> NSTextField {
         let field = NSTextField(string: value); field.placeholderString = placeholder; return field
     }
-    func checkoutWorktree(_ commit: Commit, repo: Repository) {
+    func createAutomaticWorktree(start: String = "HEAD", branch: String? = nil) {
+        guard let repo = repository else { return }
+        navigateRepository(title: "Creating worktree", repo: repo) { try Git.automaticWorktree(at: repo.path, start: start, branch: branch) }
+    }
+    func navigateRepository(title: String, repo: Repository, work: @escaping () throws -> NavigationResult) {
         guard !operationRunning, repository?.path == repo.path else { return }
-        let branches = repo.references.filter { $0.isBranch && $0.target == commit.id }.sorted { $0.shortName < $1.shortName }
-        func openBranch(_ name: String) {
-            if let tree = repo.worktrees.first(where: { $0.branch == "refs/heads/" + name }) {
-                guard tree.exists && !tree.isBare else { showError("This branch's worktree is missing or unavailable: \(tree.path)"); return }
-                open(tree.path)
-            } else {
-                manageWorktrees(start: commit.id, branch: name)
+        operationRunning = true; spinner.startAnimation(nil)
+        branches.isEnabled = false; worktreePicker.isEnabled = false; more.isEnabled = false
+        footer.stringValue = title + "…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try work() }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.operationRunning = false; self.spinner.stopAnimation(nil)
+                self.branches.isEnabled = true; self.worktreePicker.isEnabled = true; self.more.isEnabled = true
+                switch result {
+                case .success(let destination): self.open(destination.path, focusHead: true)
+                case .failure(let error): self.refreshNow(); self.showError(error.localizedDescription)
+                }
             }
         }
-        if branches.count == 1 { openBranch(branches[0].shortName); return }
-        guard !branches.isEmpty else { manageWorktrees(start: commit.id); return }
-        let choice = NSPopUpButton()
-        choice.addItems(withTitles: branches.map { branch in
-            let tree = repo.worktrees.first { $0.branch == branch.name }
-            return branch.shortName + (tree.map { " — open " + $0.name } ?? " — create worktree")
-        })
-        let alert = inputForm("Checkout in a Worktree", detail: "Choose the branch at \(commit.id.prefix(8)). Its worktree will be opened or created. The branch and files in the current folder will not change.", controls: [choice])
-        alert.beginSheetModal(for: window!) { response in
-            guard response == .alertSecondButtonReturn, branches.indices.contains(choice.indexOfSelectedItem) else { return }
-            openBranch(branches[choice.indexOfSelectedItem].shortName)
+    }
+    func checkoutWorktree(_ commit: Commit, repo: Repository, reference: String? = nil) {
+        guard !operationRunning, repository?.path == repo.path else { return }
+        let refs = repo.references.filter { $0.target == commit.id && !$0.symbolic }
+        if let reference, let ref = refs.first(where: { $0.name == reference }) {
+            if ref.name.hasPrefix("refs/remotes/") {
+                navigateRepository(title: "Checking out " + ref.shortName, repo: repo) { try Git.checkoutRemote(ref.name, at: repo.path, expectedSignature: repo.signature) }
+            } else if ref.isBranch { createAutomaticWorktree(start: commit.id, branch: ref.shortName) }
+            else { createAutomaticWorktree(start: commit.id) }
+            return
+        }
+        // A row can carry several refs. Prefer origin, then a stable lexical order, without a chooser.
+        let remote = refs.filter { $0.name.hasPrefix("refs/remotes/") }.sorted { a, b in
+            if a.shortName.hasPrefix("origin/") != b.shortName.hasPrefix("origin/") { return a.shortName.hasPrefix("origin/") }
+            return a.name < b.name
+        }.first
+        if let remote {
+            navigateRepository(title: "Checking out " + remote.shortName, repo: repo) { try Git.checkoutRemote(remote.name, at: repo.path, expectedSignature: repo.signature) }
+        } else {
+            let branch = refs.filter(\.isBranch).sorted { $0.name < $1.name }.first?.shortName
+            createAutomaticWorktree(start: commit.id, branch: branch)
         }
     }
     func resetDialog(_ commit: Commit, repo: Repository) {

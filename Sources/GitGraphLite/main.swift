@@ -106,7 +106,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.addArrangedSubview(tools)
 
         table.delegate = self; table.dataSource = self
-        table.menuProvider = { [weak self] row in self?.commitMenu(at: row) }
+        table.menuProvider = { [weak self] row, reference in self?.commitMenu(at: row, reference: reference) }
         table.style = .plain
         table.rowHeight = 24; table.intercellSpacing = NSSize(width: 0, height: 0)
         table.allowsMultipleSelection = true; table.usesAlternatingRowBackgroundColors = true
@@ -188,12 +188,12 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         }
     }
 
-    func open(_ path: String) {
+    func open(_ path: String, focusHead: Bool = false) {
         guard !operationRunning else { return }
         worktreeManager?.close()
         comparisonAnchor = nil
         limit = 500; branchFilter = nil; search.stringValue = ""
-        refresh(path: path, switching: true)
+        refresh(path: path, switching: true, focusHead: focusHead)
     }
     @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
     @objc func loadMore() { limit += 500; refreshNow() }
@@ -204,7 +204,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         limit = 500; refreshNow()
     }
 
-    func refresh(path: String, switching: Bool = false) {
+    func refresh(path: String, switching: Bool = false, focusHead: Bool = false) {
         let request = UUID(); loadID = request; loading = true; spinner.startAnimation(nil)
         let filter = branchFilter, count = limit
         footer.stringValue = "Loading history…"
@@ -234,7 +234,11 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     UserDefaults.standard.set(repo.path, forKey: "lastRepository")
                     self.applySearch(selected: selected)
                     if switching || self.table.selectedRowIndexes.isEmpty {
-                        if !self.visibleIndices.isEmpty { self.table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+                        if !self.visibleIndices.isEmpty {
+                            let row = focusHead ? (self.visibleIndices.firstIndex { self.commits[$0].id == self.activeHead } ?? 0) : 0
+                            self.table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                            self.table.scrollRowToVisible(row)
+                        }
                         else { self.clearDetails() }
                     }
                 case .failure(let error):

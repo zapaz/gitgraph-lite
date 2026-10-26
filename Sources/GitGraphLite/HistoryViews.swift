@@ -49,11 +49,27 @@ final class CommitCell: NSTableCellView {
     private var worktrees: [GitWorktree] = []
     private var laneColor = 0
     private var isHead = false
+    private var referenceRegions: [(NSRect, ReferenceLabel)] = []
     override var isFlipped: Bool { true }
     override var backgroundStyle: NSView.BackgroundStyle { didSet { needsDisplay = true } }
+    func reference(at point: NSPoint) -> String? {
+        guard let (box, label) = referenceRegions.first(where: { $0.0.contains(point) }) else { return nil }
+        if !label.remotes.isEmpty {
+            let font = NSFontManager.shared.convert(.systemFont(ofSize: 10), toHaveTrait: .italicFontMask)
+            var right = box.maxX-5
+            for index in label.remotes.indices.reversed() {
+                let width = (label.remotes[index] as NSString).size(withAttributes: [.font: font]).width
+                let left = max(box.minX+24, right-width)
+                if point.x >= left && point.x <= right+2 && label.fullNames.indices.contains(index+1) { return label.fullNames[index+1] }
+                right = left-7
+            }
+        }
+        return label.fullNames.first
+    }
 
     func configure(_ commit: Commit, labels: [ReferenceLabel], worktrees: [GitWorktree], color: Int, isHead: Bool) {
         self.commit = commit; self.labels = labels; self.worktrees = worktrees; laneColor = color; self.isHead = isHead
+        referenceRegions.removeAll(keepingCapacity: true)
         toolTip = ([commit.subject] + labels.flatMap(\.fullNames) + worktrees.map { "Worktree: \($0.path) · \($0.branchLabel)" }).joined(separator: "\n")
         setAccessibilityElement(true); setAccessibilityRole(.staticText)
         setAccessibilityLabel(([commit.subject] + labels.map { $0.name + ($0.remotes.isEmpty ? "" : " (" + $0.remotes.joined(separator: ", ") + ")") }).joined(separator: ", "))
@@ -85,6 +101,7 @@ final class CommitCell: NSTableCellView {
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let commit else { return }
+        referenceRegions.removeAll(keepingCapacity: true)
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: bounds).addClip()
         let branchColor = palette[laneColor % palette.count]
@@ -96,6 +113,7 @@ final class CommitCell: NSTableCellView {
             let width = min(badgeWidth(tag.name), tagBudget)
             guard width > 45 else { break }
             right -= width
+            referenceRegions.append((NSRect(x: right, y: (bounds.height-18)/2, width: width, height: 18), tag))
             badge(tag.name, icon: "tag", color: palette[(laneColor+index) % palette.count], x: right, width: width)
             right -= 5; tagBudget -= width+5
         }
@@ -108,6 +126,7 @@ final class CommitCell: NSTableCellView {
             let rest = i < branchLabels.count-1 ? CGFloat(32) : 0
             let width = min(badgeWidth(label.name, remote: label.remotes.joined(separator: ", "), bold: label.isCurrent), 440, remaining-rest)
             guard width > 35 else { break }
+            referenceRegions.append((NSRect(x: left, y: (bounds.height-18)/2, width: width, height: 18), label))
             badge(label.name, remote: label.remotes.joined(separator: ", "), icon: label.kind == .remote ? "cloud" : "arrow.triangle.branch", color: branchColor, x: left, width: width, bold: label.isCurrent)
             left += width+5
             if i < branchLabels.count-1 && budget-(left-5) < 80 {

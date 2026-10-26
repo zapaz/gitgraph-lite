@@ -23,11 +23,10 @@ extension Controller {
     @objc func showWorktreeManager() { manageWorktrees(start: nil) }
     func manageWorktrees(start: String?, branch: String? = nil) {
         guard !operationRunning, let repo = repository else { return }
+        if start != nil || branch != nil { createAutomaticWorktree(start: start ?? "HEAD", branch: branch); return }
         worktreeManager?.close()
         let manager = WorktreeManager(owner: self, path: repo.path)
         worktreeManager = manager; manager.showWindow(nil); manager.window?.makeKeyAndOrderFront(nil)
-        if let start { manager.createWhenLoaded = start }
-        manager.branchWhenLoaded = branch
         manager.reload()
     }
 }
@@ -39,15 +38,12 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
     let summary = NSTextField(labelWithString: "Loading worktrees…")
     let detail = NSTextField(labelWithString: "")
     var trees: [GitWorktree] = []
-    var branches: [String] = []
     var busy = false
-    var createWhenLoaded: String?
-    var branchWhenLoaded: String?
     let openButton = NSButton(title: "Open", target: nil, action: nil)
     let moveButton = NSButton(title: "Move…", target: nil, action: nil)
     let lockButton = NSButton(title: "Lock", target: nil, action: nil)
     let removeButton = NSButton(title: "Remove…", target: nil, action: nil)
-    let createButton = NSButton(title: "Create Worktree…", target: nil, action: nil)
+    let createButton = NSButton(title: "Create Worktree", target: nil, action: nil)
     let refreshButton = NSButton(title: "Refresh", target: nil, action: nil)
 
     init(owner: Controller, path: String) {
@@ -95,21 +91,16 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
         let previous = selected?.path
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let result = Result { (try Git.worktrees(at: self.repoPath), try Git.references(at: self.repoPath).filter(\.isBranch).map(\.shortName)) }
+            let result = Result { try Git.worktrees(at: self.repoPath) }
             DispatchQueue.main.async {
                 self.busy = false
                 switch result {
-                case .success(let (trees, branches)):
-                    self.trees = trees; self.branches = branches; self.table.reloadData()
+                case .success(let trees):
+                    self.trees = trees; self.table.reloadData()
                     let row = previous.flatMap { old in trees.firstIndex { Git.samePath($0.path, old) } } ?? trees.firstIndex { Git.samePath($0.path, self.browser?.repository?.path ?? self.repoPath) } ?? 0
                     if trees.indices.contains(row) { self.table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
                     self.summary.stringValue = "\(trees.count) worktrees"
                     self.updateButtons()
-                    if self.createWhenLoaded != nil || self.branchWhenLoaded != nil {
-                        let start = self.createWhenLoaded ?? "HEAD", branch = self.branchWhenLoaded
-                        self.createWhenLoaded = nil; self.branchWhenLoaded = nil
-                        self.create(start: start, existingBranch: branch)
-                    }
                 case .failure(let error): self.presentError(error.localizedDescription)
                 }
             }
@@ -159,30 +150,8 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
         }
     }
     func create(start: String, existingBranch: String? = nil) {
-        guard !busy else { return }
-        chooseDestination("New worktree folder", suggestion: URL(fileURLWithPath: repoPath).lastPathComponent + "-worktree") { [weak self] path in
-            guard let self else { return }
-            let mode = NSPopUpButton(); mode.addItems(withTitles: ["Create a new branch", "Use an existing local branch", "Detached HEAD"])
-            let name = NSTextField(string: ""); name.placeholderString = "New branch name (for new-branch mode)"
-            let existing = NSPopUpButton()
-            let available = self.branches.filter { branch in !self.trees.contains { $0.branch == "refs/heads/" + branch } }
-            existing.addItems(withTitles: available.isEmpty ? ["No unused local branches"] : available)
-            mode.item(at: 1)?.isEnabled = !available.isEmpty
-            if let existingBranch, let i = available.firstIndex(of: existingBranch) { mode.selectItem(at: 1); existing.selectItem(at: i) }
-            let revision = NSTextField(string: start); revision.placeholderString = "Starting commit or ref (new branch / detached)"
-            let open = NSButton(checkboxWithTitle: "Open the new worktree", target: nil, action: nil); open.state = .on
-            let alert = self.form("Create Worktree", detail: "Location: \(path)\nChoose a mode. The branch-name field applies to new branches; the branch menu applies to existing branches.", controls: [mode, name, existing, revision, open])
-            alert.beginSheetModal(for: self.window!) { response in
-                guard response == .alertSecondButtonReturn else { return }
-                let source: WorktreeSource
-                switch mode.indexOfSelectedItem {
-                case 1: guard available.indices.contains(existing.indexOfSelectedItem) else { return }; source = .existingBranch(available[existing.indexOfSelectedItem])
-                case 2: source = .detached(revision.stringValue)
-                default: source = .newBranch(name: name.stringValue, start: revision.stringValue)
-                }
-                self.run(.add(path: path, source: source), title: "Create Worktree", openAfter: open.state == .on ? path : nil)
-            }
-        }
+        guard !busy, let browser, browser.repository.map({ Git.samePath($0.path, repoPath) }) == true else { return }
+        close(); browser.createAutomaticWorktree(start: start, branch: existingBranch)
     }
     @objc func removeSelected() {
         guard let tree = selected else { return }
