@@ -65,6 +65,22 @@ func checkVisualDiff() {
     print("PASS: aligned visual diffs, line numbers, unequal replacements, multiple hunks, Unicode highlights, CRLF and binary files")
 }
 
+func checkUnifiedDiff() {
+    let visual = VisualDiff.parse("diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -5,4 +5,5 @@\n same\n-old 🐱\n-delete\n+new 🐶\n+insert\n+extra\n \n@@ -20 +21 @@\n-last\n+final\n\\ No newline at end of file\n")
+    let unified = UnifiedDiff(visual)
+    let edits = unified.lines.filter { $0.kind == .removed || $0.kind == .added }
+    XCTAssertEqual(edits.map(\.text), ["old 🐱", "delete", "new 🐶", "insert", "extra", "last", "final"])
+    XCTAssertEqual(edits[0].oldNumber, 6); XCTAssertEqual(edits[0].newNumber, nil)
+    XCTAssertEqual(edits[2].newNumber, 6); XCTAssertEqual(edits[2].oldNumber, nil)
+    XCTAssertEqual(edits[0].highlight, visual.rows[visual.changeStarts[0]].oldHighlight)
+    XCTAssertEqual(unified.changeStarts.count, 2)
+    XCTAssertEqual(unified.lines[unified.changeStarts[1]].oldNumber, 20)
+    XCTAssertTrue(unified.lines.contains { $0.kind == .context && $0.text.isEmpty })
+    XCTAssertTrue(unified.lines.last?.kind == .note)
+    XCTAssertTrue(UnifiedDiff(VisualDiff.parse("")).lines.isEmpty)
+    print("PASS: unified removal/addition ordering, old/new gutters, navigation anchors, blank context, notes and Unicode highlight ranges")
+}
+
 func checkCommitActions() throws {
     let f = try Fixture(), root = try f.git(["rev-parse", "HEAD"])
     try f.perform(.createBranch(name: "feature", commit: root, checkout: true))

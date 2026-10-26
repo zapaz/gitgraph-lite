@@ -39,13 +39,15 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
     let sideScroll = NSScrollView()
     let afterScroll = NSScrollView()
     let sides = NSStackView()
-    let unifiedScroll = NSScrollView()
-    let unified = NSTextView()
+    let unified = UnifiedDiffView()
     let title = NSTextField(labelWithString: "DIFF")
     let stats = NSTextField(labelWithString: "")
     let empty = NSTextField(wrappingLabelWithString: "Select a file to view its changes")
     let mode = NSSegmentedControl(labels: ["Side by side", "Unified"], trackingMode: .selectOne, target: nil, action: nil)
     let previous = NSButton(), next = NSButton()
+    let wrap = NSButton(title: "Wrap", target: nil, action: nil)
+    let copy = NSButton()
+    let progress = NSTextField(labelWithString: "")
     var model = VisualDiff.parse("")
     var patch = ""
     var currentChange = -1
@@ -66,7 +68,15 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
         for button in [previous, next] { button.bezelStyle = .rounded; button.controlSize = .small; button.target = self; button.widthAnchor.constraint(equalToConstant: 26).isActive = true }
         previous.action = #selector(previousChange); next.action = #selector(nextChange)
         previous.toolTip = "Previous change"; next.toolTip = "Next change"
-        let header = NSStackView(views: [title, stats, previous, next, mode]); header.spacing = 8
+        wrap.setButtonType(.pushOnPushOff); wrap.bezelStyle = .rounded; wrap.controlSize = .small
+        wrap.state = UserDefaults.standard.object(forKey: "unifiedWrap") == nil || UserDefaults.standard.bool(forKey: "unifiedWrap") ? .on : .off
+        wrap.target = self; wrap.action = #selector(toggleWrap); wrap.toolTip = "Wrap long lines in unified view"
+        unified.setWrapped(wrap.state == .on)
+        copy.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy patch")
+        copy.bezelStyle = .rounded; copy.controlSize = .small; copy.target = self; copy.action = #selector(copyPatch); copy.toolTip = "Copy the original Git patch"
+        copy.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        progress.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular); progress.textColor = .secondaryLabelColor
+        let header = NSStackView(views: [title, stats, progress, previous, next, copy, wrap, mode]); header.spacing = 8
         header.distribution = .fill
         header.edgeInsets = NSEdgeInsets(top: 5, left: 12, bottom: 5, right: 10)
         header.translatesAutoresizingMaskIntoConstraints = false; addSubview(header)
@@ -89,16 +99,7 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
             scroll.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(scrollChanged(_:)), name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         }
-        unified.isEditable = false; unified.isRichText = false; unified.isSelectable = true
-        unified.frame = NSRect(x: 0, y: 0, width: 800, height: 300)
-        unified.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        unified.textContainerInset = NSSize(width: 14, height: 12)
-        unified.isHorizontallyResizable = true; unified.isVerticallyResizable = true; unified.autoresizingMask = [.width]
-        unified.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        unified.textContainer?.widthTracksTextView = false
-        unified.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        unifiedScroll.documentView = unified; unifiedScroll.hasVerticalScroller = true; unifiedScroll.hasHorizontalScroller = true
-        for view in [sides, unifiedScroll] {
+        for view in [sides, unified] {
             view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view)
             NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo: leadingAnchor), view.trailingAnchor.constraint(equalTo: trailingAnchor), view.topAnchor.constraint(equalTo: header.bottomAnchor), view.bottomAnchor.constraint(equalTo: bottomAnchor)])
         }
@@ -124,11 +125,13 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
     func showMessage(_ text: String) {
         patch = ""; model = .parse(""); title.stringValue = "DIFF"; stats.stringValue = ""
+        progress.stringValue = ""; currentChange = -1
         empty.stringValue = text.isEmpty ? "Select a file to view its changes" : text
-        table.reloadData(); afterTable.reloadData(); unified.string = text; updateVisibility()
+        table.reloadData(); afterTable.reloadData(); unified.showMessage(text); updateVisibility()
     }
     func show(patch: String, file: String, before: String, after: String) {
         self.patch = patch; model = .parse(patch); currentChange = -1
+        progress.stringValue = ""
         title.stringValue = file; title.toolTip = file
         table.tableColumns[1].title = "BEFORE · " + before
         afterTable.tableColumns[1].title = "AFTER · " + after
@@ -138,26 +141,33 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
         stats.attributedStringValue = text
         preferredWidth = min(8000, CGFloat(model.rows.map { max($0.oldText?.count ?? 0, $0.newText?.count ?? 0) }.max() ?? 0)*7.3 + 24)
         sizeColumns(); table.reloadData(); afterTable.reloadData(); table.scroll(.zero); afterTable.scroll(.zero)
-        setUnified(patch)
+        unified.show(model, rawPatch: patch, before: before, after: after)
         empty.stringValue = model.isBinary ? "Binary file changed. Switch to Unified for Git's summary." : "No text changes to display. Switch to Unified for details."
         updateVisibility()
     }
     func updateVisibility() {
         let split = mode.selectedSegment == 0
-        sides.isHidden = !split; unifiedScroll.isHidden = split
+        sides.isHidden = !split; unified.isHidden = split; wrap.isHidden = split
         empty.isHidden = !split || !model.rows.isEmpty
         previous.isEnabled = !model.changeStarts.isEmpty; next.isEnabled = previous.isEnabled
+        copy.isEnabled = !patch.isEmpty && !patch.hasSuffix("\n\n[Preview truncated at 2 MB]")
+        copy.toolTip = copy.isEnabled ? "Copy the original Git patch" : patch.isEmpty ? "Select a changed file to copy its patch" : "Preview is truncated; export the complete patch with Git"
     }
     @objc func diffModeChanged() { UserDefaults.standard.set(mode.selectedSegment, forKey: "diffMode"); updateVisibility() }
     @objc func previousChange() { navigate(-1) }
     @objc func nextChange() { navigate(1) }
+    @objc func toggleWrap() { unified.setWrapped(wrap.state == .on); UserDefaults.standard.set(wrap.state == .on, forKey: "unifiedWrap") }
+    @objc func copyPatch() { guard copy.isEnabled else { return }; NSPasteboard.general.clearContents(); NSPasteboard.general.setString(patch, forType: .string) }
     func navigate(_ direction: Int) {
         guard !model.changeStarts.isEmpty else { return }
         currentChange = currentChange < 0 ? (direction > 0 ? 0 : model.changeStarts.count-1) : (currentChange + direction + model.changeStarts.count) % model.changeStarts.count
-        mode.selectedSegment = 0; updateVisibility()
-        let row = model.changeStarts[currentChange]
-        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        table.scrollRowToVisible(row)
+        if mode.selectedSegment == 1 { unified.revealChange(currentChange) }
+        else {
+            let row = model.changeStarts[currentChange]
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            table.scrollRowToVisible(row)
+        }
+        progress.stringValue = "\(currentChange+1)/\(model.changeStarts.count)"
         next.toolTip = "Change \(currentChange+1) of \(model.changeStarts.count)"
     }
     func numberOfRows(in tableView: NSTableView) -> Int { model.rows.count }
@@ -190,17 +200,5 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
         }
         cell.toolTip = gutter ? nil : content; cell.needsDisplay = true
         return cell
-    }
-    func setUnified(_ patch: String) {
-        let result = NSMutableAttributedString(string: patch, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.labelColor])
-        let ns = patch as NSString; var offset = 0
-        while offset < ns.length {
-            let range = ns.lineRange(for: NSRange(location: offset, length: 0)), line = ns.substring(with: range)
-            if line.hasPrefix("+") && !line.hasPrefix("+++") { result.addAttribute(.backgroundColor, value: NSColor.systemGreen.withAlphaComponent(0.12), range: range) }
-            else if line.hasPrefix("-") && !line.hasPrefix("---") { result.addAttribute(.backgroundColor, value: NSColor.systemRed.withAlphaComponent(0.12), range: range) }
-            else if line.hasPrefix("@@") { result.addAttribute(.foregroundColor, value: NSColor.systemTeal, range: range) }
-            offset = NSMaxRange(range)
-        }
-        unified.textStorage?.setAttributedString(result); unified.scrollToBeginningOfDocument(nil)
     }
 }
