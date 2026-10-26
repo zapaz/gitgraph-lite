@@ -120,7 +120,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         NSLayoutConstraint.activate([outer.leadingAnchor.constraint(equalTo: root.leadingAnchor), outer.trailingAnchor.constraint(equalTo: root.trailingAnchor), outer.topAnchor.constraint(equalTo: root.topAnchor), outer.bottomAnchor.constraint(equalTo: root.bottomAnchor)])
 
         let header = NSView(); header.heightAnchor.constraint(equalToConstant: 76).isActive = true
-        let logo = NSImageView(image: NSImage(systemSymbolName: "point.3.connected.trianglepath.dotted", accessibilityDescription: "GitGraph Lite")!)
+        let appIcon = Bundle.main.path(forResource: "AppIcon", ofType: "icns").flatMap { NSImage(contentsOfFile: $0) }
+        let logo = NSImageView(image: appIcon ?? NSImage(systemSymbolName: "point.3.connected.trianglepath.dotted", accessibilityDescription: "GitGraph Lite")!)
         logo.contentTintColor = .systemTeal
         logo.imageScaling = .scaleProportionallyUpOrDown
         let titles = NSStackView(views: [repoTitle, repoSubtitle]); titles.orientation = .vertical; titles.alignment = .leading; titles.spacing = 3

@@ -1,5 +1,7 @@
 # GitGraph Lite
 
+<img src="Assets/AppIcon.png" width="96" alt="GitGraph Lite icon">
+
 A small native macOS Git history browser, inspired by the compact workflow of VS Code's Git Graph. This is an independent implementation, with no extension source code or assets reused.
 
 ## Run
@@ -75,6 +77,8 @@ open "dist/GitGraph Lite.app"
 ```
 
 The build script writes `dist/GitGraph Lite.app`. Intermediate files and caches go in `.build-local/`; both folders are ignored by Git. To use another location, set `GITGRAPH_BUILD_ROOT` for intermediate files or `GITGRAPH_APP_PATH` for the app bundle.
+
+The application icon is in `Assets/` and is bundled for Finder and the Dock. Its generation prompt is recorded in `Assets/icon-prompt.md`; regenerate its macOS sizes with `zsh make-icon.sh`.
 
 ## Verified on the development Mac
 

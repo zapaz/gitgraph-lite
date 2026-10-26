@@ -1,0 +1,7 @@
+# GitGraph Lite application icon
+
+Created with the built-in imagegen tool. The generated PNG has alpha transparency. `AppIcon.png` is the 1024px source; `AppIcon.icns` contains the standard macOS 16px through 1024px representations. Regenerate the ICNS with `zsh make-icon.sh` after changing the PNG.
+
+## Generation prompt
+
+Use case: logo-brand. Asset type: production macOS application icon for GitGraph Lite, a lightweight native Git graph and worktree app. Create ONE finished icon, square 1024x1024 composition. A beautiful distinctive minimal branching commit graph: one strong turquoise vertical track and one violet parallel track gracefully splitting and joining, with 5 large perfectly round commit nodes. The graph also subtly evokes a small tree with separate workspaces. Bold balanced geometry, smooth rounded strokes, crisp edges readable at 32 pixels. Centered on a deep midnight navy rounded-square macOS squircle tile, subtle premium blue gradient and restrained luminous dimensional glass/enamel finish, very slight soft highlights, clean professional developer-tool aesthetic. Tile occupies about 84 percent of canvas, generous consistent transparent margin outside the tile. Front view, no perspective. Actual alpha transparency outside the squircle. No text, no letters, no wordmark, no watermark, no surrounding scene, no mockup, no multiple variants, no tiny details. The result must look like a polished app icon ready for the macOS Dock.
