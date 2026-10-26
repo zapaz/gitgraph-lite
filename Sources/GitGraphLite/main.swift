@@ -1,73 +1,6 @@
 import AppKit
 import GitGraphCore
 
-let palette: [NSColor] = [.systemTeal, .systemPurple, .systemOrange, .systemBlue, .systemPink, .systemGreen, .systemYellow]
-
-final class GraphCell: NSView {
-    var row: GraphRow?
-    var filtered = false
-    override var isFlipped: Bool { true }
-    override func draw(_ dirtyRect: NSRect) {
-        guard let row else { return }
-        let x: (Int) -> CGFloat = { 15 + CGFloat($0) * 16 }
-        let mid = bounds.height / 2
-        if !filtered {
-            for edge in row.edges {
-                let top: CGFloat = edge.segment == 2 ? mid : 0
-                let bottom: CGFloat = edge.segment == 1 ? mid : bounds.height
-                let path = NSBezierPath()
-                path.move(to: NSPoint(x: x(edge.from), y: top))
-                path.curve(to: NSPoint(x: x(edge.to), y: bottom), controlPoint1: NSPoint(x: x(edge.from), y: top + (bottom-top)*0.6), controlPoint2: NSPoint(x: x(edge.to), y: bottom - (bottom-top)*0.6))
-                palette[edge.color % palette.count].withAlphaComponent(0.8).setStroke()
-                path.lineWidth = 1.8; path.stroke()
-            }
-        }
-        let dot = NSBezierPath(ovalIn: NSRect(x: x(filtered ? 0 : row.lane)-4, y: mid-4, width: 8, height: 8))
-        palette[row.color % palette.count].setFill(); dot.fill()
-        NSColor.windowBackgroundColor.setStroke(); dot.lineWidth = 1.2; dot.stroke()
-    }
-}
-
-final class CommitCell: NSView {
-    let stack = NSStackView()
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        stack.orientation = .horizontal; stack.spacing = 6; stack.alignment = .centerY
-        stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4), stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6), stack.centerYAnchor.constraint(equalTo: centerYAnchor)])
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    func configure(_ commit: Commit, worktrees: [GitWorktree]) {
-        for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
-        if !commit.decorations.isEmpty {
-            let refs = commit.decorations.replacingOccurrences(of: "HEAD -> ", with: "● ")
-            let pill = NSTextField(labelWithString: " " + refs + " ")
-            pill.font = .systemFont(ofSize: 10, weight: .semibold)
-            pill.textColor = .systemTeal; pill.drawsBackground = true
-            pill.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.12)
-            pill.wantsLayer = true; pill.layer?.cornerRadius = 4
-            pill.lineBreakMode = .byTruncatingTail
-            pill.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
-            pill.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            stack.addArrangedSubview(pill)
-        }
-        for tree in worktrees where tree.head == commit.id {
-            let badge = NSTextField(labelWithString: "▣ " + tree.name)
-            badge.font = .systemFont(ofSize: 10, weight: .medium); badge.textColor = .systemBlue
-            badge.toolTip = tree.path + " · " + tree.branchLabel
-            badge.lineBreakMode = .byTruncatingMiddle
-            badge.widthAnchor.constraint(lessThanOrEqualToConstant: 150).isActive = true
-            stack.addArrangedSubview(badge)
-        }
-        let text = NSTextField(labelWithString: commit.subject)
-        text.font = .systemFont(ofSize: 12)
-        text.lineBreakMode = .byTruncatingTail
-        text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        stack.addArrangedSubview(text)
-        toolTip = commit.subject + "\n" + commit.decorations
-    }
-}
-
 final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
     let table = CommitTableView()
     let fileTable = NSTableView()
@@ -87,6 +20,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var repository: Repository?
     var commits: [Commit] = []
     var graph: [GraphRow] = []
+    var labelsByCommit: [String: [ReferenceLabel]] = [:]
+    var activeHead: String?
     var visibleIndices: [Int] = []
     var files: [ChangedFile] = []
     var branchFilter: String?
@@ -99,7 +34,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var comparisonAnchor: Commit?
     var worktreeManager: WorktreeManager?
     var timer: Timer?
-    let dateFormatter: DateFormatter = { let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; return f }()
+    let dateFormatter: DateFormatter = { let f = DateFormatter(); f.locale = .autoupdatingCurrent; f.timeZone = .autoupdatingCurrent; f.dateFormat = "d MMM yyyy HH:mm"; return f }()
 
     init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1260, height: 840), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -119,7 +54,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(outer)
         NSLayoutConstraint.activate([outer.leadingAnchor.constraint(equalTo: root.leadingAnchor), outer.trailingAnchor.constraint(equalTo: root.trailingAnchor), outer.topAnchor.constraint(equalTo: root.topAnchor), outer.bottomAnchor.constraint(equalTo: root.bottomAnchor)])
 
-        let header = NSView(); header.heightAnchor.constraint(equalToConstant: 76).isActive = true
+        let header = NSView(); header.heightAnchor.constraint(equalToConstant: 62).isActive = true
         let appIcon = Bundle.main.path(forResource: "AppIcon", ofType: "icns").flatMap { NSImage(contentsOfFile: $0) }
         let logo = NSImageView(image: appIcon ?? NSImage(systemSymbolName: "point.3.connected.trianglepath.dotted", accessibilityDescription: "GitGraph Lite")!)
         logo.contentTintColor = .systemTeal
@@ -155,7 +90,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         let worktreeBar = NSStackView(views: [worktreeLabel, worktreePicker, worktreeState, manage])
         worktreeBar.distribution = .fill; worktreeBar.spacing = 12
         worktreeBar.edgeInsets = NSEdgeInsets(top: 5, left: 20, bottom: 5, right: 20)
-        worktreeBar.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        worktreeBar.heightAnchor.constraint(equalToConstant: 34).isActive = true
         outer.addArrangedSubview(worktreeBar)
 
         branches.addItem(withTitle: "All branches (history filter)"); branches.target = self; branches.action = #selector(branchFilterChanged)
@@ -166,16 +101,17 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         let hint = NSTextField(labelWithString: "⌘-click two commits to compare"); hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         let historyLabel = NSTextField(labelWithString: "HISTORY"); historyLabel.font = .systemFont(ofSize: 10, weight: .semibold); historyLabel.textColor = .secondaryLabelColor
         let tools = NSStackView(views: [historyLabel, branches, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
-        tools.heightAnchor.constraint(equalToConstant: 48).isActive = true
+        tools.heightAnchor.constraint(equalToConstant: 40).isActive = true
         tools.distribution = .fill; search.setContentHuggingPriority(.defaultLow, for: .horizontal)
         outer.addArrangedSubview(tools)
 
         table.delegate = self; table.dataSource = self
         table.menuProvider = { [weak self] row in self?.commitMenu(at: row) }
-        table.rowHeight = 30; table.intercellSpacing = NSSize(width: 0, height: 0)
+        table.style = .plain
+        table.rowHeight = 24; table.intercellSpacing = NSSize(width: 0, height: 0)
         table.allowsMultipleSelection = true; table.usesAlternatingRowBackgroundColors = true
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        for (id, title, width) in [("graph", "GRAPH", 140.0), ("subject", "COMMIT", 600.0), ("author", "AUTHOR", 150.0), ("date", "DATE", 110.0), ("hash", "HASH", 80.0)] {
+        for (id, title, width) in [("graph", "Graph", 96.0), ("subject", "Description", 600.0), ("date", "Date", 142.0), ("author", "Author", 100.0), ("hash", "Commit", 78.0)] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id)); column.title = title; column.width = width
             column.minWidth = id == "subject" ? 180 : 55
             column.resizingMask = id == "subject" ? [.autoresizingMask, .userResizingMask] : [.userResizingMask]
@@ -281,6 +217,11 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                 case .success(let repo):
                     let selected = switching ? [] : self.table.selectedRowIndexes.compactMap { self.commit(at: $0)?.id }
                     self.repository = repo; self.commits = repo.commits; self.graph = GraphLayout.make(repo.commits)
+                    self.labelsByCommit = Dictionary(grouping: repo.references, by: \.target).mapValues { ReferenceLabel.make($0, currentBranch: repo.branch) }
+                    self.activeHead = repo.worktrees.first { Git.samePath($0.path, repo.path) }?.head
+                    if let column = self.table.tableColumns.first(where: { $0.identifier.rawValue == "graph" }) {
+                        column.width = max(column.width, min(240, CGFloat(self.graph.map(\.width).max() ?? 1)*15+24))
+                    }
                     self.updateWorktreePicker(repo)
                     if self.worktreeManager?.window?.isVisible == true { self.worktreeManager?.reload() }
                     self.repoTitle.stringValue = URL(fileURLWithPath: repo.path).lastPathComponent
@@ -360,16 +301,19 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         case "graph":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell()
             cell.identifier = id; cell.row = graph[visibleIndices[row]]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
             cell.needsDisplay = true; return cell
         case "subject":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CommitCell) ?? CommitCell()
-            cell.identifier = id; cell.configure(c, worktrees: repository?.worktrees ?? []); return cell
+            cell.identifier = id
+            cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: graph[visibleIndices[row]].color, isHead: c.id == activeHead)
+            return cell
         default:
             let label = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")
             label.identifier = id; label.font = id.rawValue == "hash" ? .monospacedSystemFont(ofSize: 11, weight: .regular) : .systemFont(ofSize: 11)
-            label.textColor = .secondaryLabelColor; label.lineBreakMode = .byTruncatingTail
+            label.textColor = id.rawValue == "hash" ? .secondaryLabelColor : .labelColor; label.lineBreakMode = .byTruncatingTail
             label.stringValue = id.rawValue == "author" ? c.author : id.rawValue == "date" ? dateFormatter.string(from: c.date) : String(c.id.prefix(8))
-            label.toolTip = label.stringValue; return label
+            label.toolTip = label.stringValue + (id.rawValue == "date" ? " · Commit date, local time" : ""); return label
         }
     }
 

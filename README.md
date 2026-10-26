@@ -9,6 +9,9 @@ A small native macOS Git history browser, inspired by the compact workflow of VS
 Open the prebuilt **GitGraph Lite.app**, or build it from source with the commands below. Then choose **Open Repository…** (⌘O).
 
 - Coloured commit graph with branch and tag labels.
+- Compact 24px history rows with a stronger blue/magenta/green/orange graph palette. Branch badges use the matching lane colour, a coloured icon and an individually outlined label; matching local/remote refs share a badge. Tags appear separately at the right of the description. Full ref names and worktree paths remain available in the row tooltip.
+- Current worktree HEAD has a ring in the graph and a stronger description/branch label. Worktree occupancy is shown with a small stack marker rather than several long name badges.
+- History uses Git's date order so recent commits on parallel branches stay near each other while children remain above their parents. Dates show the committer timestamp in local time, including hours/minutes.
 - Commit message, author, date, and file changes.
 - Select a file for a side-by-side diff with aligned lines, old/new line numbers, line backgrounds and highlighted changed text.
 - Scroll each side horizontally; vertical scrolling stays synchronized. Use the arrow buttons to jump between changes, or switch to **Unified** to copy a patch.
@@ -60,7 +63,7 @@ Mutation dialogs describe the target and effect. Merge, cherry-pick, revert, reb
 
 ## Scope
 
-Version 0.5 uses worktrees for branch navigation and includes the enhanced unified viewer and local history operations. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
+Version 0.6 combines a compact, vividly coloured history view with worktree-based branch navigation, the enhanced unified viewer and local history operations. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
 
 For repositories in macOS protected folders, use **Open Repository…** and grant access when macOS requests it.
 
@@ -89,5 +92,6 @@ The application icon is in `Assets/` and is bundled for Finder and the Dock. Its
 - Local-action checks use disposable repositories and verify branch/tag operations, cherry-pick, merge/revert, rebase/drop, reset modes and backup refs, rejection of dirty/stale state, and conflict abort/continue.
 - Worktree checks cover real linked worktrees with a `.git` file, new/existing branches, detached-only history, Unicode/newline paths, dirty/locked/main/active protections, move/remove, branch retention and branch-occupation guards. The worktree selector, graph badges and two-worktree manager with clean/dirty counts were checked in the running app.
 - Regression checks verify that creating worktrees on new/existing branches preserves the active worktree's branch, HEAD, tracked edits and untracked files; history filtering also leaves the active branch unchanged.
+- History checks verify local/remote label grouping, diverged refs, symbolic-ref filtering, comma-containing tag names, chronological interleaving across branches and child-before-parent ordering.
 - Live app checks confirm commit/file/diff display, two-commit comparison, search filtering, and automatic appearance of an externally created tag.
 - The window layout was checked visually. Large-repository performance and public distribution have not been validated.

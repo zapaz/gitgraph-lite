@@ -94,7 +94,7 @@ public enum Git {
         let branches = try string(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], at: path).split(separator: "\n").map(String.init)
         let hasHead = (try? string(["rev-parse", "--verify", "HEAD"], at: path)) != nil
         let trees = try worktrees(at: path)
-        var args = ["log", "--topo-order", "-z", "--format=%H%x00%P%x00%an%x00%at%x00%D%x00%s", "--max-count=\(limit)"]
+        var args = ["log", "--date-order", "-z", "--format=%H%x00%P%x00%an%x00%ct%x00%D%x00%s", "--max-count=\(limit)"]
         if let filter, branches.contains(filter) { args += [filter] } else {
             args += ["--all"]; if hasHead { args += ["HEAD"] }
             args += trees.map(\.head).filter { !$0.isEmpty && $0.contains(where: { $0 != "0" }) }

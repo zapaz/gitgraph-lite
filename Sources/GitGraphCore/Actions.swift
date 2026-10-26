@@ -4,6 +4,7 @@ public struct GitReference {
     public let name: String
     public let target: String
     public let symbolic: Bool
+    public init(name: String, target: String, symbolic: Bool = false) { self.name = name; self.target = target; self.symbolic = symbolic }
     public var isBranch: Bool { name.hasPrefix("refs/heads/") }
     public var isTag: Bool { name.hasPrefix("refs/tags/") }
     public var shortName: String {
