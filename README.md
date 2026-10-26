@@ -19,20 +19,30 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 - ⌘R refreshes, ⌘F searches, ⇧⌘C copies selected commit hashes.
 - Terminal: `open -a "/path/to/GitGraph Lite.app" --args --repo "/path/to/repository"`.
 
-## Commit context menu (version 0.2)
+## Branch navigation (version 0.5)
+
+The app never switches the branch checked out in an existing worktree. Checkout/switch actions, detached checkout and the create-and-checkout branch dialog have been removed from the UI and the Git action API.
+
+- If a branch already belongs to a worktree, **Open Worktree** opens that folder.
+- Otherwise, **Create Worktree on This Branch…** opens the creation flow with the existing branch preselected.
+- **Create Worktree Here…** creates a new worktree from a commit; a new branch can be created inside that worktree.
+- The **HISTORY** branch menu is a read-only graph filter. It does not change HEAD, files or the checked-out branch.
+- Branches currently used by any worktree cannot be renamed or deleted through the app, including the active branch.
+
+## Commit context menu
 
 Right-click any commit to:
 
 - Copy its hash or full commit message.
 - Compare with HEAD, select a comparison anchor, or compare two selected commits.
-- Create a branch (optionally check it out), add a lightweight or annotated tag, or check out a detached commit.
+- Create a worktree from the commit, or add a lightweight or annotated tag.
 - Cherry-pick, revert, merge, rebase the current branch, reset (soft/mixed/hard), or drop an ordinary commit from the current branch's history.
 - Choose the mainline parent when cherry-picking or reverting a merge commit.
 - Choose fast-forward, merge-commit or squash mode when merging. Squash stages changes without committing.
-- Use submenus for local branches/tags on the commit: check out, rename or safely delete a branch; copy or delete a tag.
+- Use branch submenus to open/create a worktree, copy the branch name, or rename/safely delete an unused branch; tag submenus can copy/delete a tag.
 - Continue or abort a pending merge, rebase, cherry-pick or revert after resolving conflicts in your editor and staging the files.
 
-Mutation dialogs describe the target and effect. Checkout, merge, cherry-pick, revert, rebase and drop require a clean working tree. Rebase, reset and drop create a local `gitgraph-backup/...` branch pointing to the previous HEAD. These backups preserve committed history, **not uncommitted changes**. Hard reset explicitly discards local changes after confirmation. Branch deletion uses Git's safe `-d` mode. The app rejects an action if refs, HEAD or the pending operation changed while its dialog was open.
+Mutation dialogs describe the target and effect. Merge, cherry-pick, revert, rebase and drop require a clean working tree. Rebase, reset and drop create a local `gitgraph-backup/...` branch pointing to the previous HEAD. These backups preserve committed history, **not uncommitted changes**. Hard reset explicitly discards local changes after confirmation. Branch deletion uses Git's safe `-d` mode. The app rejects an action if refs, HEAD or the pending operation changed while its dialog was open.
 
 ## Worktrees (version 0.3)
 
@@ -42,13 +52,13 @@ Mutation dialogs describe the target and effect. Checkout, merge, cherry-pick, r
 - **Create Worktree Here…** in a commit's context menu starts a new worktree from that commit.
 - Move a clean linked worktree, lock/unlock it, or remove it while preserving its branch. Removing a detached worktree first saves its HEAD to a `gitgraph-backup/worktree-...` branch.
 - Removal refuses main, active, locked, missing or dirty worktrees, pending operations, and any case rejected by Git. No force removal is offered.
-- Branches checked out in another worktree cannot be checked out, renamed or deleted here; their branch submenu offers **Open Worktree**.
+- Branches checked out in a worktree cannot be switched, renamed or deleted here; their branch submenu offers **Open Worktree** (or identifies the current worktree).
 - The graph marks worktree HEADs with blue badges and includes commits reachable only from detached worktree HEADs when showing all branches.
 - The main window refreshes worktree state automatically; the manager also has a Refresh button. Stale/missing registrations are shown, but pruning and repair remain CLI operations.
 
 ## Scope
 
-Version 0.4 adds the enhanced unified viewer alongside local history operations and worktree management. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
+Version 0.5 uses worktrees for branch navigation and includes the enhanced unified viewer and local history operations. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
 
 For repositories in macOS protected folders, use **Open Repository…** and grant access when macOS requests it.
 
@@ -74,5 +84,6 @@ The build script writes `dist/GitGraph Lite.app`. Intermediate files and caches 
 - Unified-diff checks verify removal-before-addition ordering, line numbers, change-navigation anchors, blank context lines and newline notes. The unified layout, word highlights, wrap toggle and navigation remaining in Unified mode were checked in the running app.
 - Local-action checks use disposable repositories and verify branch/tag operations, cherry-pick, merge/revert, rebase/drop, reset modes and backup refs, rejection of dirty/stale state, and conflict abort/continue.
 - Worktree checks cover real linked worktrees with a `.git` file, new/existing branches, detached-only history, Unicode/newline paths, dirty/locked/main/active protections, move/remove, branch retention and branch-occupation guards. The worktree selector, graph badges and two-worktree manager with clean/dirty counts were checked in the running app.
+- Regression checks verify that creating worktrees on new/existing branches preserves the active worktree's branch, HEAD, tracked edits and untracked files; history filtering also leaves the active branch unchanged.
 - Live app checks confirm commit/file/diff display, two-commit comparison, search filtering, and automatic appearance of an externally created tag.
 - The window layout was checked visually. Large-repository performance and public distribution have not been validated.

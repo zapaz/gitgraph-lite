@@ -13,8 +13,6 @@ public struct GitReference {
 }
 
 public enum GitAction {
-    case checkoutCommit(String), checkoutBranch(String)
-    case createBranch(name: String, commit: String, checkout: Bool)
     case renameBranch(old: String, new: String), deleteBranch(String)
     case addTag(name: String, commit: String, message: String), deleteTag(String)
     case cherryPick(commit: String, mainline: Int?), revert(commit: String, mainline: Int?)
@@ -60,20 +58,14 @@ extension Git {
         var needsClean = false, needsBranch = false, createsBackup = false
         let occupiedBranch: String?
         switch action {
-        case .checkoutBranch(let name), .deleteBranch(let name): occupiedBranch = name
+        case .deleteBranch(let name): occupiedBranch = name
         case .renameBranch(let old, _): occupiedBranch = old
         default: occupiedBranch = nil
         }
-        if let name = occupiedBranch, let tree = try parseWorktrees(worktreeMetadata(at: path)).first(where: { $0.branch == "refs/heads/" + name && !samePath($0.path, path) }) {
-            throw GitError(message: "Branch \(name) is checked out in worktree \(tree.path). Open that worktree to manage its branch.")
+        if let name = occupiedBranch, let tree = try parseWorktrees(worktreeMetadata(at: path)).first(where: { $0.branch == "refs/heads/" + name }) {
+            throw GitError(message: "Branch \(name) is checked out in worktree \(tree.path). A branch in use cannot be renamed or deleted here.")
         }
         switch action {
-        case .checkoutCommit(let sha): args = ["checkout", "--detach", sha]; needsClean = true
-        case .checkoutBranch(let name): args = ["switch", "--", name]; needsClean = true
-        case .createBranch(let name, let commit, let checkout):
-            try validateBranch(name, at: path)
-            args = checkout ? ["switch", "-c", name, commit] : ["branch", name, commit]
-            needsClean = checkout
         case .renameBranch(let old, let new): try validateBranch(new, at: path); args = ["branch", "-m", "--", old, new]
         case .deleteBranch(let name): args = ["branch", "-d", "--", name]
         case .addTag(let name, let commit, let message):
@@ -103,7 +95,7 @@ extension Git {
             try validateRecovery(operation, at: path); args = [operation, "--abort"]
         }
         if needsBranch, (try? run(["symbolic-ref", "--quiet", "HEAD"], at: path)) == nil {
-            throw GitError(message: "Check out a local branch first. This operation is unavailable with a detached HEAD.")
+            throw GitError(message: "Open or create a worktree on a local branch first. This operation is unavailable with a detached HEAD.")
         }
         if needsClean, !(try run(["status", "--porcelain=v1", "-z"], at: path)).isEmpty {
             throw GitError(message: "Commit or stash your local changes first. This action requires a clean working tree.")

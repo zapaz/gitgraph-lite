@@ -157,12 +157,14 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         worktreeBar.heightAnchor.constraint(equalToConstant: 38).isActive = true
         outer.addArrangedSubview(worktreeBar)
 
-        branches.addItem(withTitle: "All branches"); branches.target = self; branches.action = #selector(branchChanged)
+        branches.addItem(withTitle: "All branches (history filter)"); branches.target = self; branches.action = #selector(branchFilterChanged)
+        branches.toolTip = "Filter the commit history. This never changes the branch checked out in this worktree."
         branches.widthAnchor.constraint(equalToConstant: 260).isActive = true
         search.placeholderString = "Search loaded commits, authors or hashes"; search.delegate = self
         search.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
         let hint = NSTextField(labelWithString: "⌘-click two commits to compare"); hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
-        let tools = NSStackView(views: [branches, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        let historyLabel = NSTextField(labelWithString: "HISTORY"); historyLabel.font = .systemFont(ofSize: 10, weight: .semibold); historyLabel.textColor = .secondaryLabelColor
+        let tools = NSStackView(views: [historyLabel, branches, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
         tools.heightAnchor.constraint(equalToConstant: 48).isActive = true
         tools.distribution = .fill; search.setContentHuggingPriority(.defaultLow, for: .horizontal)
         outer.addArrangedSubview(tools)
@@ -258,7 +260,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
     @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
     @objc func loadMore() { limit += 500; refreshNow() }
-    @objc func branchChanged() {
+    @objc func branchFilterChanged() {
         guard !operationRunning else { return }
         let i = branches.indexOfSelectedItem
         branchFilter = i > 0 ? repository?.branches[i-1] : nil
@@ -284,7 +286,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     self.repoSubtitle.stringValue = repo.path + "  ·  " + repo.branch
                     self.repoSubtitle.toolTip = repo.path
                     self.window?.title = self.repoTitle.stringValue + " — GitGraph Lite"
-                    self.branches.removeAllItems(); self.branches.addItem(withTitle: "All branches")
+                    self.branches.removeAllItems(); self.branches.addItem(withTitle: "All branches (history filter)")
                     self.branches.addItems(withTitles: repo.branches.map { $0.replacingOccurrences(of: "refs/heads/", with: "").replacingOccurrences(of: "refs/remotes/", with: "") })
                     if let filter, let i = repo.branches.firstIndex(of: filter) { self.branches.selectItem(at: i+1) } else { self.branchFilter = nil }
                     UserDefaults.standard.set(repo.path, forKey: "lastRepository")

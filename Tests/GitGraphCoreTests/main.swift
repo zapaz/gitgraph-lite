@@ -72,6 +72,8 @@ final class GitGraphCoreTests {
         XCTAssertTrue(try Git.patch(at: path, target: merge, base: root, file: filename).contains("+second"))
         let filtered = try Git.load(at: path, branch: "refs/heads/feature", limit: 500)
         XCTAssertEqual(filtered.commits.count, 2)
+        XCTAssertEqual(filtered.branch, "main")
+        XCTAssertEqual(try git(["branch", "--show-current"]), "main")
         XCTAssertEqual(GraphLayout.make(repo.commits).count, 4)
         _ = try git(["checkout", "--detach", root])
         XCTAssertEqual(try Git.load(at: path, branch: nil, limit: 500).branch, "Detached HEAD")

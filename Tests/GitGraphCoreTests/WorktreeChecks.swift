@@ -18,7 +18,18 @@ func checkWorktrees() throws {
     try "original\n".write(to: file, atomically: true, encoding: .utf8)
     _ = try git(["add", "."]); _ = try git(["commit", "-m", "Root"])
     let root = try git(["rev-parse", "HEAD"])
+    let activeBranch = try git(["symbolic-ref", "HEAD"])
+    let localNote = main.appendingPathComponent("local-note.txt")
+    try "keep my edits\n".write(to: file, atomically: true, encoding: .utf8)
+    try "keep my untracked file".write(to: localNote, atomically: true, encoding: .utf8)
     _ = try Git.performWorktree(.add(path: linked.path, source: .newBranch(name: "feature/worktree", start: root)), at: main.path)
+    XCTAssertEqual(try git(["symbolic-ref", "HEAD"]), activeBranch)
+    XCTAssertEqual(try git(["rev-parse", "HEAD"]), root)
+    XCTAssertEqual(try String(contentsOf: file), "keep my edits\n")
+    XCTAssertEqual(try String(contentsOf: localNote), "keep my untracked file")
+    XCTAssertEqual(try String(contentsOf: linked.appendingPathComponent("file.txt")), "original\n")
+    try "original\n".write(to: file, atomically: true, encoding: .utf8)
+    try FileManager.default.removeItem(at: localNote)
     var trees = try Git.worktrees(at: main.path)
     XCTAssertEqual(trees.count, 2); XCTAssertTrue(trees[0].isMain)
     XCTAssertTrue(Git.samePath(trees[1].path, linked.path)); XCTAssertEqual(trees[1].branch, "refs/heads/feature/worktree")
@@ -29,9 +40,11 @@ func checkWorktrees() throws {
     XCTAssertTrue(FileManager.default.fileExists(atPath: linked.appendingPathComponent(".git").path, isDirectory: &isDirectory))
     XCTAssertTrue(!isDirectory.boolValue)
     expect("already checked out") { _ = try Git.performWorktree(.add(path: folder.appendingPathComponent("duplicate").path, source: .existingBranch("feature/worktree")), at: main.path) }
-    for action in [GitAction.checkoutBranch("feature/worktree"), .renameBranch(old: "feature/worktree", new: "renamed"), .deleteBranch("feature/worktree")] {
+    for action in [GitAction.renameBranch(old: "feature/worktree", new: "renamed"), .deleteBranch("feature/worktree")] {
         expect("checked out in worktree") { _ = try Git.perform(action, at: main.path) }
     }
+    expect("checked out in worktree") { _ = try Git.perform(.renameBranch(old: "main", new: "renamed-main"), at: main.path) }
+    expect("valid branch") { _ = try Git.performWorktree(.add(path: folder.appendingPathComponent("bad").path, source: .newBranch(name: "-bad", start: root)), at: main.path) }
     let fingerprint = Git.worktreeSummary(trees)
     let untracked = linked.appendingPathComponent("untracked.txt")
     try "keep this".write(to: untracked, atomically: true, encoding: .utf8)
@@ -65,9 +78,15 @@ func checkWorktrees() throws {
     _ = try Git.performWorktree(.remove(detached.path), at: main.path)
     XCTAssertTrue(try Git.references(at: main.path).contains { $0.name.hasPrefix("refs/heads/gitgraph-backup/worktree-") && $0.target == detachedHead })
     let existing = folder.appendingPathComponent("existing branch worktree")
+    try "local edits before opening another branch\n".write(to: file, atomically: true, encoding: .utf8)
     _ = try Git.performWorktree(.add(path: existing.path, source: .existingBranch("feature/worktree")), at: main.path)
+    XCTAssertEqual(try git(["symbolic-ref", "HEAD"]), activeBranch)
+    XCTAssertEqual(try git(["rev-parse", "HEAD"]), root)
+    XCTAssertEqual(try String(contentsOf: file), "local edits before opening another branch\n")
     XCTAssertEqual(try Git.load(at: existing.path, branch: nil, limit: 500).branch, "feature/worktree")
     _ = try Git.performWorktree(.remove(existing.path), at: main.path)
+    try "original\n".write(to: file, atomically: true, encoding: .utf8)
     XCTAssertEqual(try git(["status", "--porcelain"]), "")
     print("PASS: linked worktrees, new/existing branches, detached HEAD history, Unicode/newline paths, dirty/locked/main/active protections, move, remove and cross-worktree branch guards")
+    print("PASS: new/existing-branch worktree creation preserves the active branch, HEAD, tracked edits and untracked files")
 }

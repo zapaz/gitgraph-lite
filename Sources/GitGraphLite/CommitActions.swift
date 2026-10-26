@@ -52,16 +52,10 @@ extension Controller {
         menu.addItem(.separator())
         let canWrite = !loading && !operationRunning && repo.pendingOperation == nil
         let current = repo.branch
-        add("Create Branch Here…", enabled: canWrite) { [weak self] in
-            self?.createBranchDialog(commit, repo: repo)
-        }
         add("Create Worktree Here…", enabled: !loading && !operationRunning) { [weak self] in
             self?.manageWorktrees(start: commit.id)
         }
         add("Add Tag…", enabled: canWrite) { [weak self] in self?.tagDialog(commit, repo: repo) }
-        add("Checkout Commit…", enabled: canWrite) { [weak self] in
-            self?.confirmAction("Checkout Commit", detail: "Check out \(commit.id.prefix(8)) in detached HEAD mode. Your current branch stays at its existing commit. A clean working tree is required.", repo: repo, action: .checkoutCommit(commit.id))
-        }
         menu.addItem(.separator())
         add("Cherry-pick Commit…", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
         add("Revert Commit…", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
@@ -82,14 +76,14 @@ extension Controller {
             guard ref.isBranch || ref.isTag else { continue }
             let sub = submenu((ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
             if ref.isBranch {
-                let occupied = repo.worktrees.first { $0.branch == ref.name && !Git.samePath($0.path, repo.path) }
+                let occupied = repo.worktrees.first { $0.branch == ref.name }
                 if let occupied {
-                    add("Open Worktree: \(occupied.name)", to: sub, enabled: occupied.exists && !operationRunning) { [weak self] in self?.open(occupied.path) }
+                    let active = Git.samePath(occupied.path, repo.path)
+                    add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", to: sub, enabled: occupied.exists && !operationRunning && !active) { [weak self] in self?.open(occupied.path) }
+                } else {
+                    add("Create Worktree on This Branch…", to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
                 }
                 add("Copy Branch Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                add("Checkout Branch…", to: sub, enabled: canWrite && ref.shortName != current && occupied == nil) { [weak self] in
-                    self?.confirmAction("Checkout Branch", detail: "Switch to \(ref.shortName). A clean working tree is required.", repo: repo, action: .checkoutBranch(ref.shortName))
-                }
                 add("Rename Branch…", to: sub, enabled: canWrite && occupied == nil) { [weak self] in self?.renameBranchDialog(ref.shortName, repo: repo) }
                 add("Delete Branch…", to: sub, enabled: canWrite && ref.shortName != current && occupied == nil) { [weak self] in
                     self?.confirmAction("Delete Branch", detail: "Delete local branch \(ref.shortName). Git will refuse if it contains unmerged work. The branch will not be deleted from any remote.", repo: repo, action: .deleteBranch(ref.shortName), destructive: true)
@@ -172,14 +166,6 @@ extension Controller {
     }
     func nameField(_ placeholder: String, value: String = "") -> NSTextField {
         let field = NSTextField(string: value); field.placeholderString = placeholder; return field
-    }
-    func createBranchDialog(_ commit: Commit, repo: Repository) {
-        let name = nameField("New branch name"), checkout = NSButton(checkboxWithTitle: "Check out the new branch", target: nil, action: nil)
-        let alert = inputForm("Create Branch", detail: "Create a local branch at \(commit.id.prefix(8)). Checking it out requires a clean working tree.", controls: [name, checkout])
-        alert.beginSheetModal(for: window!) { [weak self] response in
-            if response == .alertSecondButtonReturn { self?.execute(.createBranch(name: name.stringValue, commit: commit.id, checkout: checkout.state == .on), repo: repo, title: "Create Branch") }
-        }
-        alert.window.makeFirstResponder(name)
     }
     func tagDialog(_ commit: Commit, repo: Repository) {
         let name = nameField("Tag name"), annotation = nameField("Annotation (optional)")

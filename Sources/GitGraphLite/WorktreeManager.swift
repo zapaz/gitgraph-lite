@@ -21,12 +21,13 @@ extension Controller {
         worktreeManager?.close(); open(tree.path)
     }
     @objc func showWorktreeManager() { manageWorktrees(start: nil) }
-    func manageWorktrees(start: String?) {
+    func manageWorktrees(start: String?, branch: String? = nil) {
         guard !operationRunning, let repo = repository else { return }
         worktreeManager?.close()
         let manager = WorktreeManager(owner: self, path: repo.path)
         worktreeManager = manager; manager.showWindow(nil); manager.window?.makeKeyAndOrderFront(nil)
         if let start { manager.createWhenLoaded = start }
+        manager.branchWhenLoaded = branch
         manager.reload()
     }
 }
@@ -41,6 +42,7 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
     var branches: [String] = []
     var busy = false
     var createWhenLoaded: String?
+    var branchWhenLoaded: String?
     let openButton = NSButton(title: "Open", target: nil, action: nil)
     let moveButton = NSButton(title: "Move…", target: nil, action: nil)
     let lockButton = NSButton(title: "Lock", target: nil, action: nil)
@@ -103,7 +105,11 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
                     if trees.indices.contains(row) { self.table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
                     self.summary.stringValue = "\(trees.count) worktrees"
                     self.updateButtons()
-                    if let start = self.createWhenLoaded { self.createWhenLoaded = nil; self.create(start: start) }
+                    if self.createWhenLoaded != nil || self.branchWhenLoaded != nil {
+                        let start = self.createWhenLoaded ?? "HEAD", branch = self.branchWhenLoaded
+                        self.createWhenLoaded = nil; self.branchWhenLoaded = nil
+                        self.create(start: start, existingBranch: branch)
+                    }
                 case .failure(let error): self.presentError(error.localizedDescription)
                 }
             }
@@ -152,7 +158,7 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
             if response == .OK, let path = panel.url?.path { DispatchQueue.main.async { completion(path) } }
         }
     }
-    func create(start: String) {
+    func create(start: String, existingBranch: String? = nil) {
         guard !busy else { return }
         chooseDestination("New worktree folder", suggestion: URL(fileURLWithPath: repoPath).lastPathComponent + "-worktree") { [weak self] path in
             guard let self else { return }
@@ -162,6 +168,7 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
             let available = self.branches.filter { branch in !self.trees.contains { $0.branch == "refs/heads/" + branch } }
             existing.addItems(withTitles: available.isEmpty ? ["No unused local branches"] : available)
             mode.item(at: 1)?.isEnabled = !available.isEmpty
+            if let existingBranch, let i = available.firstIndex(of: existingBranch) { mode.selectItem(at: 1); existing.selectItem(at: i) }
             let revision = NSTextField(string: start); revision.placeholderString = "Starting commit or ref (new branch / detached)"
             let open = NSButton(checkboxWithTitle: "Open the new worktree", target: nil, action: nil); open.state = .on
             let alert = self.form("Create Worktree", detail: "Location: \(path)\nChoose a mode. The branch-name field applies to new branches; the branch menu applies to existing branches.", controls: [mode, name, existing, revision, open])

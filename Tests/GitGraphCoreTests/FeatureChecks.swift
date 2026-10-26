@@ -83,7 +83,7 @@ func checkUnifiedDiff() {
 
 func checkCommitActions() throws {
     let f = try Fixture(), root = try f.git(["rev-parse", "HEAD"])
-    try f.perform(.createBranch(name: "feature", commit: root, checkout: true))
+    _ = try f.git(["switch", "-c", "feature", root])
     try f.write("feature.txt", "feature\n"); let feature = try f.commit("Feature")
     try f.perform(.addTag(name: "annotated", commit: feature, message: "Release note"))
     let refs = try Git.references(at: f.path)
@@ -91,36 +91,36 @@ func checkCommitActions() throws {
     try f.perform(.deleteTag("annotated"))
     try f.perform(.addTag(name: "light", commit: root, message: ""))
     try f.perform(.deleteTag("light"))
-    try f.perform(.checkoutBranch("main"))
+    _ = try f.git(["switch", "main"])
     try f.write("main.txt", "main\n"); _ = try f.commit("Main change")
     try f.perform(.merge(commit: feature, noFastForward: true, squash: false))
     let merge = try f.git(["rev-parse", "HEAD"])
     XCTAssertEqual(try f.git(["show", "-s", "--format=%P", "HEAD"]).split(separator: " ").count, 2)
     try f.perform(.revert(commit: merge, mainline: 1))
     XCTAssertTrue(!FileManager.default.fileExists(atPath: f.url.appendingPathComponent("feature.txt").path))
-    try f.perform(.createBranch(name: "pick", commit: root, checkout: true))
+    _ = try f.git(["switch", "-c", "pick", root])
     try f.perform(.cherryPick(commit: feature, mainline: nil))
     XCTAssertTrue(FileManager.default.fileExists(atPath: f.url.appendingPathComponent("feature.txt").path))
     let picked = try f.git(["rev-parse", "HEAD"])
     try f.perform(.revert(commit: picked, mainline: nil))
+    _ = try f.git(["switch", "main"])
     try f.perform(.renameBranch(old: "pick", new: "picked"))
-    XCTAssertEqual(try f.git(["branch", "--show-current"]), "picked")
-    try f.perform(.checkoutBranch("main"))
+    XCTAssertEqual(try f.git(["branch", "--show-current"]), "main")
+    _ = try f.git(["switch", "main"])
     expectFailure("not fully merged") { try f.perform(.deleteBranch("picked")) }
-    try f.perform(.createBranch(name: "temporary", commit: root, checkout: false))
+    _ = try f.git(["branch", "temporary", root])
     try f.perform(.deleteBranch("temporary"))
-    try f.perform(.checkoutCommit(root))
+    _ = try f.git(["checkout", "--detach", root])
     XCTAssertEqual(try Git.load(at: f.path, branch: nil, limit: 500).branch, "Detached HEAD")
     expectFailure("local branch") { try f.perform(.rebase(feature)) }
-    try f.perform(.checkoutBranch("main"))
+    _ = try f.git(["switch", "main"])
     let signature = try Git.signature(at: f.path)
     try f.perform(.addTag(name: "changed", commit: root, message: ""))
-    expectFailure("repository changed") { _ = try Git.perform(.checkoutCommit(root), at: f.path, expectedSignature: signature) }
+    expectFailure("repository changed") { _ = try Git.perform(.rebase(root), at: f.path, expectedSignature: signature) }
     try f.write("untracked.txt", "keep me")
-    expectFailure("clean working tree") { try f.perform(.checkoutCommit(root)) }
+    expectFailure("clean working tree") { try f.perform(.rebase(root)) }
     XCTAssertEqual(try String(contentsOf: f.url.appendingPathComponent("untracked.txt")), "keep me")
-    expectFailure("valid branch") { try f.perform(.createBranch(name: "-bad", commit: root, checkout: false)) }
-    print("PASS: branch/tag creation, checkout, rename, safe deletion, cherry-pick, merge/revert, annotated tags, dirty/stale repository guards")
+    print("PASS: tag creation, unused branch rename/deletion, cherry-pick, merge/revert, annotated tags and dirty/stale repository guards")
 }
 
 func checkHistoryRewrites() throws {
@@ -145,11 +145,11 @@ func checkHistoryRewrites() throws {
     XCTAssertTrue(hard.backup != nil)
     XCTAssertEqual(try f.git(["status", "--porcelain"]), "")
     XCTAssertTrue(!FileManager.default.fileExists(atPath: f.url.appendingPathComponent("b.txt").path))
-    try f.perform(.createBranch(name: "topic", commit: root, checkout: true))
+    _ = try f.git(["switch", "-c", "topic", root])
     try f.write("topic.txt", "topic\n"); _ = try f.commit("Topic")
-    try f.perform(.checkoutBranch("main"))
+    _ = try f.git(["switch", "main"])
     try f.write("main.txt", "main\n"); let main = try f.commit("Main")
-    try f.perform(.checkoutBranch("topic"))
+    _ = try f.git(["switch", "topic"])
     let rebase = try f.perform(.rebase(main))
     XCTAssertTrue(rebase.backup != nil)
     XCTAssertEqual(try f.git(["rev-parse", "HEAD^"]), main)
@@ -159,13 +159,13 @@ func checkHistoryRewrites() throws {
 
 func checkConflicts() throws {
     let f = try Fixture(), root = try f.git(["rev-parse", "HEAD"])
-    try f.perform(.createBranch(name: "conflicting", commit: root, checkout: true))
+    _ = try f.git(["switch", "-c", "conflicting", root])
     try f.write("shared.txt", "feature\n"); let feature = try f.commit("Feature edit")
-    try f.perform(.checkoutBranch("main"))
+    _ = try f.git(["switch", "main"])
     try f.write("shared.txt", "main\n"); let main = try f.commit("Main edit")
     expectFailure("in progress") { try f.perform(.cherryPick(commit: feature, mainline: nil)) }
     XCTAssertEqual(try Git.pendingOperation(at: f.path), "cherry-pick")
-    expectFailure("already in progress") { try f.perform(.checkoutCommit(root)) }
+    expectFailure("already in progress") { try f.perform(.rebase(root)) }
     try f.perform(.abortOperation("cherry-pick"))
     XCTAssertEqual(try f.git(["rev-parse", "HEAD"]), main)
     expectFailure("in progress") { try f.perform(.cherryPick(commit: feature, mainline: nil)) }
