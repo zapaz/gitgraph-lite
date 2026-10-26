@@ -21,77 +21,80 @@ extension Controller {
     func commitMenu(at row: Int) -> NSMenu? {
         guard let commit = commit(at: row), let repo = repository else { return nil }
         let menu = NSMenu(); menu.autoenablesItems = false
-        func add(_ title: String, to parent: NSMenu? = nil, enabled: Bool = true, _ handler: @escaping () -> Void) {
+        @discardableResult func add(_ title: String, to parent: NSMenu? = nil, enabled: Bool = true, _ handler: @escaping () -> Void) -> NSMenuItem {
             let command = MenuCommand(handler)
             let item = NSMenuItem(title: title, action: #selector(MenuCommand.invoke(_:)), keyEquivalent: "")
             item.target = command; item.representedObject = command; item.isEnabled = enabled
             (parent ?? menu).addItem(item)
+            return item
         }
         func submenu(_ title: String) -> NSMenu {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             let sub = NSMenu(); sub.autoenablesItems = false; item.submenu = sub; menu.addItem(item); return sub
         }
-        let title = NSMenuItem(title: String(commit.id.prefix(8)) + " · " + String(commit.subject.prefix(65)), action: nil, keyEquivalent: "")
-        title.isEnabled = false; menu.addItem(title)
-        add("Copy Commit Hash") { [weak self] in self?.copyText(commit.id) }
-        add("Copy Commit Message") { [weak self] in
-            self?.readFromRepository(repo.path) { try Git.message(at: repo.path, commit: commit.id) } completion: { text in self?.copyText(text) }
-        }
-        menu.addItem(.separator())
-        add("Compare with HEAD") { [weak self] in
-            self?.readFromRepository(repo.path) { try Git.string(["rev-parse", "HEAD"], at: repo.path) } completion: { head in self?.showDetails(for: commit, base: head) }
-        }
-        add("Select for Comparison") { [weak self] in self?.comparisonAnchor = commit; self?.footer.stringValue = "Right-click another commit and choose Compare with \(commit.id.prefix(8))." }
-        if let anchor = comparisonAnchor, anchor.id != commit.id {
-            add("Compare with \(anchor.id.prefix(8))") { [weak self] in self?.showDetails(for: commit, base: anchor.id) }
-        }
-        let selected = table.selectedRowIndexes.compactMap { self.commit(at: $0) }
-        if selected.count == 2 {
-            add("Compare Selected Commits") { [weak self] in self?.showDetails(for: selected[0], base: selected[1].id) }
-        }
-        menu.addItem(.separator())
         let canWrite = !loading && !operationRunning && repo.pendingOperation == nil
+        let canOpenWorktree = !loading && !operationRunning
         let current = repo.branch
-        add("Create Worktree Here…", enabled: !loading && !operationRunning) { [weak self] in
+
+        add("Add Tag...", enabled: canWrite) { [weak self] in self?.tagDialog(commit, repo: repo) }
+        add("Create Branch...", enabled: canOpenWorktree) { [weak self] in
             self?.manageWorktrees(start: commit.id)
-        }
-        add("Add Tag…", enabled: canWrite) { [weak self] in self?.tagDialog(commit, repo: repo) }
+        }.toolTip = "Create the new branch in a separate worktree. The current folder stays on its branch."
         menu.addItem(.separator())
-        add("Cherry-pick Commit…", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
-        add("Revert Commit…", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
-        add("Merge into Current Branch…", enabled: canWrite) { [weak self] in self?.mergeDialog(commit, repo: repo) }
-        add("Rebase Current Branch onto Commit…", enabled: canWrite) { [weak self] in
+        add("Checkout...", enabled: canOpenWorktree) { [weak self] in self?.checkoutWorktree(commit, repo: repo) }
+            .toolTip = "Open this branch's worktree, or create one. Never switch branches in the current folder."
+        add("Cherry Pick...", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
+        add("Revert...", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
+        menu.addItem(.separator())
+        add("Merge into current branch...", enabled: canWrite) { [weak self] in self?.mergeDialog(commit, repo: repo) }
+        add("Rebase current branch on this Commit...", enabled: canWrite) { [weak self] in
             self?.confirmAction("Rebase Current Branch", detail: "Rebase \(current) onto \(commit.id.prefix(8)). This rewrites commit hashes and preserves merge structure. A backup branch will save the previous HEAD. A clean working tree is required.", repo: repo, action: .rebase(commit.id), destructive: true)
         }
-        let resets = submenu("Reset Current Branch to Commit")
-        for (mode, explanation) in [("soft", "Keep all file changes staged."), ("mixed", "Keep file changes in the working tree, but unstage them."), ("hard", "Discard tracked local changes. Untracked files that obstruct target files may also be removed.")] {
-            add("\(mode.capitalized)…", to: resets, enabled: canWrite) { [weak self] in
-                self?.confirmAction("\(mode.capitalized) Reset", detail: "Move \(current) to \(commit.id.prefix(8)). \(explanation)\n\nA backup branch will save the previous HEAD, but does not save uncommitted changes.", repo: repo, action: .reset(commit: commit.id, mode: mode), destructive: true)
+        add("Reset current branch to this Commit...", enabled: canWrite) { [weak self] in self?.resetDialog(commit, repo: repo) }
+        menu.addItem(.separator())
+        add("Copy Commit Hash to Clipboard") { [weak self] in self?.copyText(commit.id) }
+        add("Copy Commit Subject to Clipboard") { [weak self] in self?.copyText(commit.subject) }
+
+        // Keep the normal menu identical to the reference. Option-right-click exposes Lite's extra tools.
+        if NSEvent.modifierFlags.contains(.option) {
+            menu.addItem(.separator())
+            add("Copy Full Commit Message") { [weak self] in
+                self?.readFromRepository(repo.path) { try Git.message(at: repo.path, commit: commit.id) } completion: { text in self?.copyText(text) }
             }
-        }
-        add("Drop Commit…", enabled: canWrite && commit.parents.count == 1) { [weak self] in
-            self?.confirmAction("Drop Commit", detail: "Remove \(commit.id.prefix(8)) from the current branch's history and replay its descendants. This rewrites commit hashes. The commit must be an ancestor of \(current). A backup branch will save the previous HEAD.", repo: repo, action: .drop(commit.id), destructive: true)
-        }
-        for ref in repo.references where ref.target == commit.id && !ref.symbolic {
-            guard ref.isBranch || ref.isTag else { continue }
-            let sub = submenu((ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
-            if ref.isBranch {
-                let occupied = repo.worktrees.first { $0.branch == ref.name }
-                if let occupied {
-                    let active = Git.samePath(occupied.path, repo.path)
-                    add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", to: sub, enabled: occupied.exists && !operationRunning && !active) { [weak self] in self?.open(occupied.path) }
+            add("Compare with HEAD") { [weak self] in
+                self?.readFromRepository(repo.path) { try Git.string(["rev-parse", "HEAD"], at: repo.path) } completion: { head in self?.showDetails(for: commit, base: head) }
+            }
+            add("Select for Comparison") { [weak self] in self?.comparisonAnchor = commit; self?.footer.stringValue = "Right-click another commit with Option held to compare with \(commit.id.prefix(8))." }
+            if let anchor = comparisonAnchor, anchor.id != commit.id {
+                add("Compare with \(anchor.id.prefix(8))") { [weak self] in self?.showDetails(for: commit, base: anchor.id) }
+            }
+            let selected = table.selectedRowIndexes.compactMap { self.commit(at: $0) }
+            if selected.count == 2 { add("Compare Selected Commits") { [weak self] in self?.showDetails(for: selected[0], base: selected[1].id) } }
+            add("Create Worktree Here...", enabled: canOpenWorktree) { [weak self] in self?.manageWorktrees(start: commit.id) }
+            add("Drop Commit...", enabled: canWrite && commit.parents.count == 1) { [weak self] in
+                self?.confirmAction("Drop Commit", detail: "Remove \(commit.id.prefix(8)) from the current branch's history and replay its descendants. This rewrites commit hashes. The commit must be an ancestor of \(current). A backup branch will save the previous HEAD.", repo: repo, action: .drop(commit.id), destructive: true)
+            }
+            for ref in repo.references where ref.target == commit.id && !ref.symbolic {
+                guard ref.isBranch || ref.isTag else { continue }
+                let sub = submenu((ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
+                if ref.isBranch {
+                    let occupied = repo.worktrees.first { $0.branch == ref.name }
+                    if let occupied {
+                        let active = Git.samePath(occupied.path, repo.path)
+                        add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", to: sub, enabled: occupied.exists && !operationRunning && !active) { [weak self] in self?.open(occupied.path) }
+                    } else {
+                        add("Create Worktree on This Branch…", to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
+                    }
+                    add("Copy Branch Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
+                    add("Rename Branch…", to: sub, enabled: canWrite && occupied == nil) { [weak self] in self?.renameBranchDialog(ref.shortName, repo: repo) }
+                    add("Delete Branch…", to: sub, enabled: canWrite && ref.shortName != current && occupied == nil) { [weak self] in
+                        self?.confirmAction("Delete Branch", detail: "Delete local branch \(ref.shortName). Git will refuse if it contains unmerged work. The branch will not be deleted from any remote.", repo: repo, action: .deleteBranch(ref.shortName), destructive: true)
+                    }
                 } else {
-                    add("Create Worktree on This Branch…", to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
-                }
-                add("Copy Branch Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                add("Rename Branch…", to: sub, enabled: canWrite && occupied == nil) { [weak self] in self?.renameBranchDialog(ref.shortName, repo: repo) }
-                add("Delete Branch…", to: sub, enabled: canWrite && ref.shortName != current && occupied == nil) { [weak self] in
-                    self?.confirmAction("Delete Branch", detail: "Delete local branch \(ref.shortName). Git will refuse if it contains unmerged work. The branch will not be deleted from any remote.", repo: repo, action: .deleteBranch(ref.shortName), destructive: true)
-                }
-            } else {
-                add("Copy Tag Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                add("Delete Tag…", to: sub, enabled: canWrite) { [weak self] in
-                    self?.confirmAction("Delete Tag", detail: "Delete local tag \(ref.shortName). The tag will not be deleted from any remote.", repo: repo, action: .deleteTag(ref.shortName), destructive: true)
+                    add("Copy Tag Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
+                    add("Delete Tag…", to: sub, enabled: canWrite) { [weak self] in
+                        self?.confirmAction("Delete Tag", detail: "Delete local tag \(ref.shortName). The tag will not be deleted from any remote.", repo: repo, action: .deleteTag(ref.shortName), destructive: true)
+                    }
                 }
             }
         }
@@ -166,6 +169,43 @@ extension Controller {
     }
     func nameField(_ placeholder: String, value: String = "") -> NSTextField {
         let field = NSTextField(string: value); field.placeholderString = placeholder; return field
+    }
+    func checkoutWorktree(_ commit: Commit, repo: Repository) {
+        guard !operationRunning, repository?.path == repo.path else { return }
+        let branches = repo.references.filter { $0.isBranch && $0.target == commit.id }.sorted { $0.shortName < $1.shortName }
+        func openBranch(_ name: String) {
+            if let tree = repo.worktrees.first(where: { $0.branch == "refs/heads/" + name }) {
+                guard tree.exists && !tree.isBare else { showError("This branch's worktree is missing or unavailable: \(tree.path)"); return }
+                open(tree.path)
+            } else {
+                manageWorktrees(start: commit.id, branch: name)
+            }
+        }
+        if branches.count == 1 { openBranch(branches[0].shortName); return }
+        guard !branches.isEmpty else { manageWorktrees(start: commit.id); return }
+        let choice = NSPopUpButton()
+        choice.addItems(withTitles: branches.map { branch in
+            let tree = repo.worktrees.first { $0.branch == branch.name }
+            return branch.shortName + (tree.map { " — open " + $0.name } ?? " — create worktree")
+        })
+        let alert = inputForm("Checkout in a Worktree", detail: "Choose the branch at \(commit.id.prefix(8)). Its worktree will be opened or created. The branch and files in the current folder will not change.", controls: [choice])
+        alert.beginSheetModal(for: window!) { response in
+            guard response == .alertSecondButtonReturn, branches.indices.contains(choice.indexOfSelectedItem) else { return }
+            openBranch(branches[choice.indexOfSelectedItem].shortName)
+        }
+    }
+    func resetDialog(_ commit: Commit, repo: Repository) {
+        let mode = NSPopUpButton()
+        mode.addItems(withTitles: ["Soft — keep changes staged", "Mixed — keep changes, unstage files", "Hard — discard local changes"])
+        mode.selectItem(at: 1)
+        let alert = inputForm("Reset Current Branch", detail: "Move \(repo.branch) to \(commit.id.prefix(8)).\n\nSoft keeps changes staged. Mixed keeps file changes but unstages them. Hard discards tracked changes and may remove untracked files that obstruct target files.\n\nA backup branch saves the previous HEAD, not uncommitted changes.", controls: [mode])
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window!) { [weak self] response in
+            guard response == .alertSecondButtonReturn else { return }
+            let modes = ["soft", "mixed", "hard"]
+            guard modes.indices.contains(mode.indexOfSelectedItem) else { return }
+            self?.execute(.reset(commit: commit.id, mode: modes[mode.indexOfSelectedItem]), repo: repo, title: "Reset Current Branch")
+        }
     }
     func tagDialog(_ commit: Commit, repo: Repository) {
         let name = nameField("Tag name"), annotation = nameField("Annotation (optional)")

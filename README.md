@@ -26,7 +26,7 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 
 ## Branch navigation (version 0.5)
 
-The app never switches the branch checked out in an existing worktree. Checkout/switch actions, detached checkout and the create-and-checkout branch dialog have been removed from the UI and the Git action API.
+The app never switches the branch checked out in an existing worktree. Traditional checkout/switch operations remain absent from the Git action API. The **Checkout...** menu entry opens or creates a worktree instead; **Create Branch...** creates the branch in a new worktree.
 
 - If a branch already belongs to a worktree, **Open Worktree** opens that folder.
 - Otherwise, **Create Worktree on This Branch…** opens the creation flow with the existing branch preselected.
@@ -36,7 +36,29 @@ The app never switches the branch checked out in an existing worktree. Checkout/
 
 ## Commit context menu
 
-Right-click any commit to:
+The normal menu follows the legacy Git Graph labels, order and separators:
+
+```text
+Add Tag...
+Create Branch...
+────────────────────────────────────────────
+Checkout...
+Cherry Pick...
+Revert...
+────────────────────────────────────────────
+Merge into current branch...
+Rebase current branch on this Commit...
+Reset current branch to this Commit...
+────────────────────────────────────────────
+Copy Commit Hash to Clipboard
+Copy Commit Subject to Clipboard
+```
+
+Reset opens a dialog offering soft/mixed/hard modes. Checkout opens the matching branch's worktree or starts worktree creation. If several local branches point at the commit, it asks which one; if none does, it offers a new branch/worktree at that commit. The current folder's branch is preserved.
+
+Hold **Option** while right-clicking for Lite's additional comparison, full-message copy, drop and branch/tag management actions. Pending operations still expose Continue/Abort for conflict recovery.
+
+The menus support:
 
 - Copy its hash or full commit message.
 - Compare with HEAD, select a comparison anchor, or compare two selected commits.
