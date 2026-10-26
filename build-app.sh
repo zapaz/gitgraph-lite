@@ -1,9 +1,10 @@
 #!/bin/zsh
 set -eu
 ROOT="${0:A:h}"
-BUILD="${ROOT}/../../work/build"
-CACHE="${ROOT}/../../work/cache"
-APP="${ROOT}/../GitGraph Lite.app"
+WORK="${GITGRAPH_BUILD_ROOT:-${ROOT}/.build-local}"
+BUILD="${WORK}/build"
+CACHE="${WORK}/cache"
+APP="${GITGRAPH_APP_PATH:-${ROOT}/dist/GitGraph Lite.app}"
 cd "$ROOT"
 mkdir -p "$CACHE/clang" "$CACHE/swift" "$CACHE/config" "$CACHE/security"
 export CLANG_MODULE_CACHE_PATH="$CACHE/clang"
@@ -22,10 +23,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>GitGraph Lite</string>
 <key>CFBundleDisplayName</key><string>GitGraph Lite</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>0.3.0</string>
+<key>CFBundleVersion</key><string>3</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSDocumentsFolderUsageDescription</key><string>Open and manage Git repositories you choose in Documents.</string>
+<key>NSDesktopFolderUsageDescription</key><string>Open and manage Git repositories you choose on the Desktop.</string>
+<key>NSDownloadsFolderUsageDescription</key><string>Open and manage Git repositories you choose in Downloads.</string>
 <key>NSHumanReadableCopyright</key><string>GitGraph Lite — independent implementation, 2026.</string>
 </dict></plist>
 PLIST

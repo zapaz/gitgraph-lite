@@ -24,6 +24,10 @@ public struct Repository {
     public let branches: [String]
     public let commits: [Commit]
     public let signature: String
+    public let references: [GitReference]
+    public let pendingOperation: String?
+    public let worktrees: [GitWorktree]
+    public var worktreeSignature: String { Git.worktreeSummary(worktrees) }
 }
 
 public struct GitError: LocalizedError {
@@ -47,6 +51,7 @@ public enum Git {
         p.arguments = ["--no-optional-locks", "-C", path] + args
         var env = ProcessInfo.processInfo.environment
         env["GIT_TERMINAL_PROMPT"] = "0"; env["GIT_PAGER"] = "cat"
+        env["GIT_EDITOR"] = "/usr/bin/true"; env["GIT_SEQUENCE_EDITOR"] = "/usr/bin/true"
         p.environment = env
         p.standardInput = FileHandle.nullDevice
         p.standardOutput = stdout; p.standardError = stderr
@@ -80,7 +85,7 @@ public enum Git {
         let refs = try string(["for-each-ref", "--format=%(refname) %(objectname)"], at: path)
         let head = (try? string(["rev-parse", "--verify", "HEAD"], at: path)) ?? "unborn"
         let branch = (try? string(["symbolic-ref", "--quiet", "--short", "HEAD"], at: path)) ?? "detached"
-        return refs + "\n" + head + "\n" + branch
+        return refs + "\n" + head + "\n" + branch + "\n" + (try pendingOperation(at: path) ?? "")
     }
 
     public static func load(at input: String, branch filter: String?, limit: Int) throws -> Repository {
@@ -88,11 +93,15 @@ public enum Git {
         let branch = (try? string(["symbolic-ref", "--quiet", "--short", "HEAD"], at: path)) ?? "Detached HEAD"
         let branches = try string(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], at: path).split(separator: "\n").map(String.init)
         let hasHead = (try? string(["rev-parse", "--verify", "HEAD"], at: path)) != nil
+        let trees = try worktrees(at: path)
         var args = ["log", "--topo-order", "-z", "--format=%H%x00%P%x00%an%x00%at%x00%D%x00%s", "--max-count=\(limit)"]
-        if let filter { args += [filter] } else { args += ["--all"]; if hasHead { args += ["HEAD"] } }
+        if let filter, branches.contains(filter) { args += [filter] } else {
+            args += ["--all"]; if hasHead { args += ["HEAD"] }
+            args += trees.map(\.head).filter { !$0.isEmpty && $0.contains(where: { $0 != "0" }) }
+        }
         args += ["--"]
         let commits = hasHead || !branches.isEmpty ? try parseLog(run(args, at: path)) : []
-        return Repository(path: path, branch: branch, branches: branches, commits: commits, signature: try signature(at: path))
+        return Repository(path: path, branch: branch, branches: branches, commits: commits, signature: try signature(at: path), references: try references(at: path), pendingOperation: try pendingOperation(at: path), worktrees: trees)
     }
 
     public static func message(at path: String, commit: String) throws -> String {

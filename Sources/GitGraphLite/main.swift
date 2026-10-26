@@ -37,7 +37,7 @@ final class CommitCell: NSView {
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4), stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6), stack.centerYAnchor.constraint(equalTo: centerYAnchor)])
     }
     required init?(coder: NSCoder) { fatalError() }
-    func configure(_ commit: Commit) {
+    func configure(_ commit: Commit, worktrees: [GitWorktree]) {
         for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
         if !commit.decorations.isEmpty {
             let refs = commit.decorations.replacingOccurrences(of: "HEAD -> ", with: "● ")
@@ -51,6 +51,14 @@ final class CommitCell: NSView {
             pill.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             stack.addArrangedSubview(pill)
         }
+        for tree in worktrees where tree.head == commit.id {
+            let badge = NSTextField(labelWithString: "▣ " + tree.name)
+            badge.font = .systemFont(ofSize: 10, weight: .medium); badge.textColor = .systemBlue
+            badge.toolTip = tree.path + " · " + tree.branchLabel
+            badge.lineBreakMode = .byTruncatingMiddle
+            badge.widthAnchor.constraint(lessThanOrEqualToConstant: 150).isActive = true
+            stack.addArrangedSubview(badge)
+        }
         let text = NSTextField(labelWithString: commit.subject)
         text.font = .systemFont(ofSize: 12)
         text.lineBreakMode = .byTruncatingTail
@@ -61,9 +69,9 @@ final class CommitCell: NSView {
 }
 
 final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
-    let table = NSTableView()
+    let table = CommitTableView()
     let fileTable = NSTableView()
-    let diff = NSTextView()
+    let diffViewer = DiffViewer()
     let message = NSTextView()
     let repoTitle = NSTextField(labelWithString: "GitGraph Lite")
     let repoSubtitle = NSTextField(labelWithString: "A clear view of your history")
@@ -72,6 +80,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     let fileTitle = NSTextField(labelWithString: "FILES")
     let search = NSSearchField()
     let branches = NSPopUpButton()
+    let worktreePicker = NSPopUpButton()
+    let worktreeState = NSTextField(labelWithString: "")
     let spinner = NSProgressIndicator()
     let more = NSButton(title: "Load more", target: nil, action: nil)
     var repository: Repository?
@@ -85,6 +95,9 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var base: String?
     var loadID = UUID(), detailID = UUID(), patchID = UUID()
     var loading = false, checking = false, rebuilding = false
+    var operationRunning = false
+    var comparisonAnchor: Commit?
+    var worktreeManager: WorktreeManager?
     var timer: Timer?
     let dateFormatter: DateFormatter = { let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; return f }()
 
@@ -128,6 +141,22 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.addArrangedSubview(header)
         outer.addArrangedSubview(separator())
 
+        let worktreeLabel = NSTextField(labelWithString: "WORKTREE")
+        worktreeLabel.font = .systemFont(ofSize: 10, weight: .semibold); worktreeLabel.textColor = .secondaryLabelColor
+        worktreePicker.addItem(withTitle: "Open a repository"); worktreePicker.isEnabled = false
+        worktreePicker.target = self; worktreePicker.action = #selector(worktreeChanged)
+        worktreePicker.widthAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
+        worktreePicker.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        worktreeState.font = .systemFont(ofSize: 11); worktreeState.textColor = .secondaryLabelColor
+        let manage = NSButton(title: "Manage Worktrees…", target: self, action: #selector(showWorktreeManager)); manage.bezelStyle = .rounded
+        manage.widthAnchor.constraint(equalToConstant: 170).isActive = true
+        worktreeState.setContentHuggingPriority(.required, for: .horizontal)
+        let worktreeBar = NSStackView(views: [worktreeLabel, worktreePicker, worktreeState, manage])
+        worktreeBar.distribution = .fill; worktreeBar.spacing = 12
+        worktreeBar.edgeInsets = NSEdgeInsets(top: 5, left: 20, bottom: 5, right: 20)
+        worktreeBar.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        outer.addArrangedSubview(worktreeBar)
+
         branches.addItem(withTitle: "All branches"); branches.target = self; branches.action = #selector(branchChanged)
         branches.widthAnchor.constraint(equalToConstant: 260).isActive = true
         search.placeholderString = "Search loaded commits, authors or hashes"; search.delegate = self
@@ -139,6 +168,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.addArrangedSubview(tools)
 
         table.delegate = self; table.dataSource = self
+        table.menuProvider = { [weak self] row in self?.commitMenu(at: row) }
         table.rowHeight = 30; table.intercellSpacing = NSSize(width: 0, height: 0)
         table.allowsMultipleSelection = true; table.usesAlternatingRowBackgroundColors = true
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
@@ -176,17 +206,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         filePane.addArrangedSubview(fileScroll)
         filePane.widthAnchor.constraint(greaterThanOrEqualToConstant: 170).isActive = true
         bottom.addArrangedSubview(filePane)
-        diff.isEditable = false; diff.isSelectable = true; diff.isRichText = false
-        diff.frame = NSRect(x: 0, y: 0, width: 800, height: 250)
-        diff.minSize = NSSize(width: 0, height: 0)
-        diff.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        diff.font = .monospacedSystemFont(ofSize: 12, weight: .regular); diff.backgroundColor = .textBackgroundColor
-        diff.textContainerInset = NSSize(width: 16, height: 12)
-        diff.isHorizontallyResizable = true; diff.isVerticallyResizable = true
-        diff.autoresizingMask = [.width]; diff.textContainer?.widthTracksTextView = false
-        diff.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        let diffScroll = NSScrollView(); diffScroll.hasVerticalScroller = true; diffScroll.hasHorizontalScroller = true; diffScroll.documentView = diff
-        bottom.addArrangedSubview(diffScroll)
+        bottom.addArrangedSubview(diffViewer)
         details.addArrangedSubview(bottom)
 
         let split = NSSplitView(); split.isVertical = false; split.dividerStyle = .thin
@@ -197,7 +217,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.addArrangedSubview(separator())
         footer.font = .systemFont(ofSize: 11); footer.textColor = .secondaryLabelColor
         footer.lineBreakMode = .byTruncatingMiddle
-        let readOnly = NSTextField(labelWithString: "READ ONLY"); readOnly.font = .systemFont(ofSize: 9, weight: .semibold); readOnly.textColor = .systemTeal
+        let readOnly = NSTextField(labelWithString: "LOCAL GIT"); readOnly.font = .systemFont(ofSize: 9, weight: .semibold); readOnly.textColor = .systemTeal
         more.target = self; more.action = #selector(loadMore); more.bezelStyle = .rounded; more.isHidden = true
         let foot = NSStackView(views: [footer, more, readOnly]); foot.edgeInsets = NSEdgeInsets(top: 7, left: 20, bottom: 7, right: 20); foot.spacing = 16
         foot.heightAnchor.constraint(equalToConstant: 36).isActive = true
@@ -211,10 +231,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         root.layoutSubtreeIfNeeded(); split.setPosition(350, ofDividerAt: 0); bottom.setPosition(290, ofDividerAt: 0)
         DispatchQueue.main.async {
             root.layoutSubtreeIfNeeded()
-            split.setPosition(split.bounds.height * 0.56, ofDividerAt: 0)
+            split.setPosition(split.bounds.height * 0.48, ofDividerAt: 0)
             bottom.setPosition(280, ofDividerAt: 0)
         }
-        setDiff("Open a repository, then select a commit and a file.\n\nGitGraph Lite browses local history without modifying your repository.")
+        setDiff("Open a repository, then select a commit and a file.\nRight-click a commit for Git actions.")
     }
 
     func separator() -> NSView {
@@ -222,6 +242,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
 
     @objc func openRepository() {
+        guard !operationRunning else { return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.prompt = "Open Repository"
         panel.beginSheetModal(for: window!) { [weak self] response in
             if response == .OK, let path = panel.url?.path { self?.open(path) }
@@ -229,12 +250,16 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
 
     func open(_ path: String) {
+        guard !operationRunning else { return }
+        worktreeManager?.close()
+        comparisonAnchor = nil
         limit = 500; branchFilter = nil; search.stringValue = ""
         refresh(path: path, switching: true)
     }
-    @objc func refreshNow() { if let path = repository?.path { refresh(path: path) } else { openRepository() } }
+    @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
     @objc func loadMore() { limit += 500; refreshNow() }
     @objc func branchChanged() {
+        guard !operationRunning else { return }
         let i = branches.indexOfSelectedItem
         branchFilter = i > 0 ? repository?.branches[i-1] : nil
         limit = 500; refreshNow()
@@ -253,13 +278,15 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                 case .success(let repo):
                     let selected = switching ? [] : self.table.selectedRowIndexes.compactMap { self.commit(at: $0)?.id }
                     self.repository = repo; self.commits = repo.commits; self.graph = GraphLayout.make(repo.commits)
+                    self.updateWorktreePicker(repo)
+                    if self.worktreeManager?.window?.isVisible == true { self.worktreeManager?.reload() }
                     self.repoTitle.stringValue = URL(fileURLWithPath: repo.path).lastPathComponent
                     self.repoSubtitle.stringValue = repo.path + "  ·  " + repo.branch
                     self.repoSubtitle.toolTip = repo.path
                     self.window?.title = self.repoTitle.stringValue + " — GitGraph Lite"
                     self.branches.removeAllItems(); self.branches.addItem(withTitle: "All branches")
                     self.branches.addItems(withTitles: repo.branches.map { $0.replacingOccurrences(of: "refs/heads/", with: "").replacingOccurrences(of: "refs/remotes/", with: "") })
-                    if let filter, let i = repo.branches.firstIndex(of: filter) { self.branches.selectItem(at: i+1) }
+                    if let filter, let i = repo.branches.firstIndex(of: filter) { self.branches.selectItem(at: i+1) } else { self.branchFilter = nil }
                     UserDefaults.standard.set(repo.path, forKey: "lastRepository")
                     self.applySearch(selected: selected)
                     if switching || self.table.selectedRowIndexes.isEmpty {
@@ -276,14 +303,15 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
 
     func checkForChanges() {
-        guard !loading, !checking, let repo = repository else { return }
+        guard !loading, !checking, !operationRunning, window?.attachedSheet == nil, let repo = repository else { return }
         checking = true
         DispatchQueue.global(qos: .utility).async {
             let signature = try? Git.signature(at: repo.path)
+            let treeSignature = (try? Git.worktrees(at: repo.path)).map(Git.worktreeSummary)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }; self.checking = false
-                guard self.repository?.path == repo.path, !self.loading else { return }
-                if let signature, signature != repo.signature { self.refresh(path: repo.path) }
+                guard self.repository?.path == repo.path, !self.loading, !self.operationRunning, self.window?.attachedSheet == nil else { return }
+                if let signature, signature != repo.signature || (treeSignature != nil && treeSignature != repo.worktreeSignature) { self.refresh(path: repo.path) }
             }
         }
     }
@@ -303,6 +331,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"
         more.isHidden = commits.count < limit
+        if let operation = repository?.pendingOperation { footer.stringValue += " · \(operation) in progress — right-click for Continue / Abort" }
         if rows.isEmpty { clearDetails() } else { loadDetails() }
     }
 
@@ -331,7 +360,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             cell.needsDisplay = true; return cell
         case "subject":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CommitCell) ?? CommitCell()
-            cell.identifier = id; cell.configure(c); return cell
+            cell.identifier = id; cell.configure(c, worktrees: repository?.worktrees ?? []); return cell
         default:
             let label = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")
             label.identifier = id; label.font = id.rawValue == "hash" ? .monospacedSystemFont(ofSize: 11, weight: .regular) : .systemFont(ofSize: 11)
@@ -355,11 +384,16 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func loadDetails() {
         let selected = table.selectedRowIndexes.compactMap { commit(at: $0) }
-        guard let first = selected.first, let repo = repository else { clearDetails(); return }
+        guard let first = selected.first, repository != nil else { clearDetails(); return }
         guard selected.count <= 2 else {
             clearDetails(); detailTitle.stringValue = "Select one commit, or exactly two to compare"; return
         }
-        target = first.id; base = selected.count == 2 ? selected[1].id : nil
+        showDetails(for: first, base: selected.count == 2 ? selected[1].id : nil)
+    }
+
+    func showDetails(for first: Commit, base comparisonBase: String?) {
+        guard let repo = repository else { return }
+        target = first.id; base = comparisonBase
         let base = self.base, request = UUID(); detailID = request; patchID = UUID()
         files = []; fileTable.reloadData(); fileTitle.stringValue = "FILES"
         detailTitle.stringValue = base == nil ? "\(first.id.prefix(10))  ·  \(first.author)  ·  \(dateFormatter.string(from: first.date))" : "Compare \(base!.prefix(8)) → \(first.id.prefix(8))"
@@ -394,7 +428,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.patchID == request else { return }
                 switch result {
-                case .success(let patch): self.setDiff(patch.isEmpty ? "No text diff available." : patch)
+                case .success(let patch):
+                    self.diffViewer.show(patch: patch, file: file.path, before: base.map { String($0.prefix(8)) } ?? "Parent", after: String(target.prefix(8)))
                 case .failure(let error): self.setDiff(error.localizedDescription)
                 }
             }
@@ -402,22 +437,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
 
     func setDiff(_ text: String) {
-        let result = NSMutableAttributedString(string: text, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.labelColor])
-        let ns = text as NSString
-        var offset = 0
-        while offset < ns.length {
-            let range = ns.lineRange(for: NSRange(location: offset, length: 0))
-            let line = ns.substring(with: range)
-            let color: NSColor?
-            if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("diff ") || line.hasPrefix("index ") { color = .secondaryLabelColor }
-            else if line.hasPrefix("+") { color = .systemGreen }
-            else if line.hasPrefix("-") { color = .systemRed }
-            else if line.hasPrefix("@@") { color = .systemTeal }
-            else { color = nil }
-            if let color { result.addAttribute(.foregroundColor, value: color, range: range) }
-            offset = NSMaxRange(range)
-        }
-        diff.textStorage?.setAttributedString(result); diff.scrollToBeginningOfDocument(nil)
+        diffViewer.showMessage(text)
     }
 
     @objc func focusSearch() { window?.makeFirstResponder(search) }
