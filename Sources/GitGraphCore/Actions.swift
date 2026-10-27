@@ -55,6 +55,7 @@ extension Git {
         if !recovery, let pending = try pendingOperation(at: path) {
             throw GitError(message: "A \(pending) is already in progress. Resolve conflicts and use Continue, or choose Abort from the commit menu.")
         }
+        if expectedSignature != nil { try validateWorkspace(at: path) }
         var args: [String] = [], backup: String?
         var needsClean = false, needsBranch = false, createsBackup = false
         let occupiedBranch: String?
@@ -63,7 +64,7 @@ extension Git {
         case .renameBranch(let old, _): occupiedBranch = old
         default: occupiedBranch = nil
         }
-        if let name = occupiedBranch, let tree = try parseWorktrees(worktreeMetadata(at: path)).first(where: { $0.branch == "refs/heads/" + name }) {
+        if let name = occupiedBranch, let tree = try worktrees(at: path).first(where: { $0.branch == "refs/heads/" + name || $0.assignedBranch == "refs/heads/" + name }) {
             throw GitError(message: "Branch \(name) is checked out in worktree \(tree.path). A branch in use cannot be renamed or deleted here.")
         }
         switch action {

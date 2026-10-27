@@ -12,6 +12,8 @@ public struct GitWorktree {
     public let pruneReason: String?
     public let changedFiles: Int?
     public let exists: Bool
+    public var assignedBranch: String? = nil
+    public var associationIssue: String? = nil
     public var name: String { URL(fileURLWithPath: path).lastPathComponent }
     public var branchLabel: String { branch.map { $0.replacingOccurrences(of: "refs/heads/", with: "") } ?? (isBare ? "Bare repository" : "Detached · " + String(head.prefix(8))) }
     public var stateLabel: String {
@@ -22,6 +24,7 @@ public struct GitWorktree {
         else if !isBare { parts.append("Status unavailable") }
         if isLocked { parts.append("Locked") }
         if isPrunable { parts.append("Prunable") }
+        if associationIssue != nil { parts.append("Association changed") }
         return parts.joined(separator: " · ")
     }
 }
@@ -62,7 +65,7 @@ extension Git {
     }
 
     public static func worktrees(at path: String) throws -> [GitWorktree] {
-        try parseWorktrees(worktreeMetadata(at: path)).map { tree in
+        let trees = try parseWorktrees(worktreeMetadata(at: path)).map { tree in
             let status = tree.exists && !tree.isBare ? try? run(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], at: tree.path) : nil
             var count = 0
             if let status {
@@ -74,9 +77,10 @@ extension Git {
             }
             return GitWorktree(path: tree.path, head: tree.head, branch: tree.branch, isMain: tree.isMain, isBare: tree.isBare, isLocked: tree.isLocked, lockReason: tree.lockReason, isPrunable: tree.isPrunable, pruneReason: tree.pruneReason, changedFiles: status == nil ? nil : count, exists: tree.exists)
         }
+        return try WorkspaceAssociations.annotate(trees, at: path)
     }
     public static func worktreeSummary(_ worktrees: [GitWorktree]) -> String {
-        worktrees.map { "\($0.path)\0\($0.head)\0\($0.branch ?? "")\0\($0.stateLabel)\0\($0.lockReason ?? "")" }.joined(separator: "\n")
+        worktrees.map { "\($0.path)\0\($0.head)\0\($0.branch ?? "")\0\($0.stateLabel)\0\($0.lockReason ?? "")\0\($0.assignedBranch ?? "")\0\($0.associationIssue ?? "")" }.joined(separator: "\n")
     }
 
     public static func performWorktree(_ action: WorktreeAction, at path: String) throws -> String {
@@ -112,7 +116,7 @@ extension Git {
                 args = ["worktree", "add", "-b", name, "--", dest, commit]
             case .existingBranch(let name):
                 try validateBranch(name, at: path)
-                guard !trees.contains(where: { $0.branch == "refs/heads/" + name }) else { throw GitError(message: "This branch is already checked out in a worktree. Open that worktree instead.") }
+                guard !trees.contains(where: { $0.branch == "refs/heads/" + name || $0.assignedBranch == "refs/heads/" + name }) else { throw GitError(message: "This branch is already checked out in a worktree. Open that worktree instead.") }
                 _ = try run(["show-ref", "--verify", "refs/heads/" + name], at: path)
                 args = ["worktree", "add", "--", dest, name]
             case .detached(let start):
@@ -132,6 +136,7 @@ extension Git {
         }
         do {
             let output = try string(args, at: path)
+            _ = try WorkspaceAssociations.annotate(parseWorktrees(worktreeMetadata(at: path)), at: path)
             return output + (preservedHead.map { "\nDetached HEAD saved as branch \($0)." } ?? "")
         } catch {
             if let preservedHead { throw GitError(message: error.localizedDescription + "\nDetached HEAD saved as branch \(preservedHead).") }

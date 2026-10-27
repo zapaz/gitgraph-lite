@@ -2,22 +2,23 @@ import Foundation
 
 // Stable identifiers keep counts independent of commit hashes, refs and menu labels.
 public enum CommitActionID: String, CaseIterable {
+    // Historical checkout IDs are retained for local usage counts; their UI actions now open dedicated workspaces.
     case checkout, createWorktree, compareHead, copyHash, copySubject
     case addTag, createBranch, cherryPick, revert, merge, rebase, reset
     case copyMessage, selectComparison, compareAnchor, compareSelected, drop
     case checkoutRemote, copyBranchName, openWorktree, createBranchWorktree
     case renameBranch, deleteBranch, copyTagName, deleteTag
-    case continueOperation, abortOperation
+    case continueOperation, abortOperation, createLocalFromRemote
 
     public var title: String {
         switch self {
-        case .checkout: return "Checkout..."
-        case .createWorktree: return "Create Worktree Here..."
+        case .checkout: return "Open Branch…"
+        case .createWorktree: return "Create and Open Branch Here…"
         case .compareHead: return "Compare with HEAD"
         case .copyHash: return "Copy Commit Hash to Clipboard"
         case .copySubject: return "Copy Commit Subject to Clipboard"
         case .addTag: return "Add Tag..."
-        case .createBranch: return "Create Branch..."
+        case .createBranch: return "Create Local Branch"
         case .cherryPick: return "Cherry Pick..."
         case .revert: return "Revert..."
         case .merge: return "Merge into current branch..."
@@ -28,16 +29,17 @@ public enum CommitActionID: String, CaseIterable {
         case .compareAnchor: return "Compare with Selected Commit"
         case .compareSelected: return "Compare Selected Commits"
         case .drop: return "Drop Commit..."
-        case .checkoutRemote: return "Checkout Remote Branch in This Worktree"
+        case .checkoutRemote: return "Open Remote Branch Locally…"
         case .copyBranchName: return "Copy Branch Name"
         case .openWorktree: return "Open Worktree"
-        case .createBranchWorktree: return "Create Worktree on This Branch…"
+        case .createBranchWorktree: return "Open Branch…"
         case .renameBranch: return "Rename Branch…"
         case .deleteBranch: return "Delete Branch…"
         case .copyTagName: return "Copy Tag Name"
         case .deleteTag: return "Delete Tag…"
         case .continueOperation: return "Continue Operation…"
         case .abortOperation: return "Abort Operation…"
+        case .createLocalFromRemote: return "Create Local Branch"
         }
     }
 }

@@ -52,7 +52,7 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             return a != b ? a : $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
         for group in groups {
-            let tree = repo.worktrees.first { $0.branch == "refs/heads/" + group.name }
+            let tree = repo.worktrees.first { $0.assignedBranch == "refs/heads/" + group.name || $0.branch == "refs/heads/" + group.name }
             guard query.isEmpty || (group.name + " " + (tree?.path ?? "")).lowercased().contains(query) else { continue }
             let pinned = group.mandatoryPin || owner.branchPins.contains(group.name)
             let check = CallbackButton(group.name) { [weak owner] in
@@ -69,7 +69,7 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             check.lineBreakMode = .byTruncatingMiddle
             check.toolTip = group.references.joined(separator: "\n")
             let versions = group.references.map { $0.hasPrefix("refs/heads/") ? "local" : $0.replacingOccurrences(of: "refs/remotes/", with: "") }.joined(separator: " · ")
-            let detail = NSTextField(labelWithString: versions + (tree.map { "  |  " + $0.name + " · " + $0.stateLabel } ?? ""))
+            let detail = NSTextField(labelWithString: versions + (tree.map { "  |  " + $0.name + " · " + $0.stateLabel } ?? (group.localReference == nil ? "  |  Remote only" : "  |  No workspace yet")))
             detail.font = .systemFont(ofSize: 10); detail.textColor = .secondaryLabelColor; detail.lineBreakMode = .byTruncatingMiddle; detail.toolTip = tree?.path
             let name = NSStackView(views: [check, detail]); name.orientation = .vertical; name.alignment = .leading; name.spacing = 1
             let pin = CallbackButton(pinned ? "★" : "☆") { [weak owner] in
@@ -80,16 +80,25 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             pin.isEnabled = !group.mandatoryPin && !owner.operationRunning
             pin.toolTip = group.mandatoryPin ? "Always pinned" : pinned ? "Unpin branch" : "Pin branch"
             pin.widthAnchor.constraint(equalToConstant: 30).isActive = true
-            let worktree = CallbackButton(tree == nil ? "Create worktree" : "Open worktree") { [weak owner] in
+            let remote = group.references.first { $0.hasPrefix("refs/remotes/origin/") } ?? group.references.first { $0.hasPrefix("refs/remotes/") }
+            let local = CallbackButton("Create local") { [weak owner] in
+                guard let owner, let remote, !owner.operationRunning else { return }
+                owner.branchPopover.close(); owner.createLocalBranchOnly(remote: remote)
+            }
+            local.widthAnchor.constraint(equalToConstant: 100).isActive = true
+            local.isHidden = group.localReference != nil
+            local.isEnabled = !owner.loading && !owner.operationRunning && remote != nil
+            local.toolTip = "Create only the local branch, without a workspace."
+            let worktree = CallbackButton("Open") { [weak owner] in
                 guard let owner, !owner.operationRunning else { return }
                 owner.branchPopover.close()
-                if let tree { owner.open(tree.path, focusHead: true) }
-                else { owner.createAutomaticWorktree(branch: group.name) }
+                if group.localReference != nil { owner.openLocalWorkspace(group.name, repo: repo) }
+                else if let remote { owner.openRemoteWorkspace(remote, repo: repo) }
             }
-            worktree.isEnabled = !owner.loading && !owner.operationRunning && (tree?.exists ?? true)
-            worktree.toolTip = tree?.path ?? "Create and open a worktree automatically"
-            worktree.widthAnchor.constraint(equalToConstant: 125).isActive = true
-            let row = NSStackView(views: [name, pin, worktree]); row.spacing = 8; row.distribution = .fill
+            worktree.isEnabled = !owner.loading && !owner.operationRunning && (tree?.exists ?? true) && tree?.associationIssue == nil
+            worktree.toolTip = tree?.associationIssue ?? tree?.path ?? "Create and open this branch’s dedicated workspace."
+            worktree.widthAnchor.constraint(equalToConstant: 70).isActive = true
+            let row = NSStackView(views: [name, pin, local, worktree]); row.spacing = 8; row.distribution = .fill
             row.heightAnchor.constraint(equalToConstant: 44).isActive = true
             name.setContentHuggingPriority(.init(1), for: .horizontal)
             name.setContentCompressionResistancePriority(.init(1), for: .horizontal)

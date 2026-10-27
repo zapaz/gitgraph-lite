@@ -46,17 +46,18 @@ extension Controller {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             let sub = NSMenu(title: title); sub.autoenablesItems = false; item.submenu = sub; menu.addItem(item); return sub
         }
-        let canWrite = !loading && !operationRunning && repo.pendingOperation == nil
+        let activeWorkspace = repo.worktrees.first { Git.samePath($0.path, repo.path) }
+        let canWrite = !loading && !operationRunning && repo.pendingOperation == nil && activeWorkspace?.associationIssue == nil && activeWorkspace?.branch != nil
         let canOpenWorktree = !loading && !operationRunning
         let current = repo.branch
 
         add("Add Tag...", id: .addTag, enabled: canWrite) { [weak self] in self?.tagDialog(commit, repo: repo) }
-        add("Create Branch...", id: .createBranch, enabled: canOpenWorktree) { [weak self] in
-            self?.manageWorktrees(start: commit.id)
-        }.toolTip = "Create the new branch in a separate worktree. The current folder stays on its branch."
+        add("Create Local Branch", id: .createBranch, enabled: canOpenWorktree) { [weak self] in
+            self?.createLocalBranchOnly(start: commit.id)
+        }.toolTip = "Create a local branch only. Its workspace will be created when you open it."
         menu.addItem(.separator())
-        add("Checkout...", id: .checkout, enabled: canOpenWorktree) { [weak self] in self?.checkoutWorktree(commit, repo: repo, reference: reference) }
-            .toolTip = "Remote branches check out their same-named local branch here. Local branches open or create their worktree."
+        add("Open Branch…", id: .checkout, enabled: canOpenWorktree) { [weak self] in self?.openCommitBranch(commit, repo: repo, reference: reference) }
+            .toolTip = "Open the branch’s dedicated workspace, creating it if needed. The current folder never changes branch."
         add("Cherry Pick...", id: .cherryPick, enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
         add("Revert...", id: .revert, enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
         menu.addItem(.separator())
@@ -83,7 +84,7 @@ extension Controller {
             }
             let selected = table.selectedRowIndexes.compactMap { self.commit(at: $0) }
             if selected.count == 2 { add("Compare Selected Commits", id: .compareSelected) { [weak self] in self?.showDetails(for: selected[0], base: selected[1].id) } }
-            add("Create Worktree Here...", id: .createWorktree, enabled: canOpenWorktree) { [weak self] in self?.manageWorktrees(start: commit.id) }
+            add("Create and Open Branch Here…", id: .createWorktree, enabled: canOpenWorktree) { [weak self] in self?.manageWorktrees(start: commit.id) }
             add("Drop Commit...", id: .drop, enabled: canWrite && commit.parents.count == 1) { [weak self] in
                 self?.confirmAction("Drop Commit", detail: "Remove \(commit.id.prefix(8)) from the current branch's history and replay its descendants. This rewrites commit hashes. The commit must be an ancestor of \(current). A backup branch will save the previous HEAD.", repo: repo, action: .drop(commit.id), destructive: true)
             }
@@ -92,17 +93,18 @@ extension Controller {
                 guard ref.isBranch || ref.isTag || remote else { continue }
                 let sub = submenu((remote ? "Remote Branch: " : ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
                 if remote {
-                    add("Checkout \(ref.shortName) in This Worktree", id: .checkoutRemote, to: sub, enabled: canWrite) { [weak self] in
-                        self?.navigateRepository(title: "Checking out " + ref.shortName, repo: repo) { try Git.checkoutRemote(ref.name, at: repo.path, expectedSignature: repo.signature) }
+                    add("Open \(ref.shortName) Locally…", id: .checkoutRemote, to: sub, enabled: canOpenWorktree) { [weak self] in
+                        self?.navigateRepository(title: "Opening " + ref.shortName, repo: repo) { try Git.openRemoteBranch(ref.name, at: repo.path, expectedSignature: repo.signature) }
                     }
+                    add("Create Local Branch", id: .createLocalFromRemote, to: sub, enabled: canOpenWorktree) { [weak self] in self?.createLocalBranchOnly(start: commit.id, remote: ref.name) }
                     add("Copy Branch Name", id: .copyBranchName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
                 } else if ref.isBranch {
-                    let occupied = repo.worktrees.first { $0.branch == ref.name }
+                    let occupied = repo.worktrees.first { $0.assignedBranch == ref.name || $0.branch == ref.name }
                     if let occupied {
                         let active = Git.samePath(occupied.path, repo.path)
-                        add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", id: .openWorktree, to: sub, enabled: occupied.exists && !operationRunning && !active) { [weak self] in self?.open(occupied.path) }
+                        add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", id: .openWorktree, to: sub, enabled: occupied.exists && occupied.associationIssue == nil && !operationRunning && !active) { [weak self] in self?.openLocalWorkspace(ref.shortName, repo: repo) }
                     } else {
-                        add("Create Worktree on This Branch…", id: .createBranchWorktree, to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
+                        add("Open Branch…", id: .createBranchWorktree, to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
                     }
                     add("Copy Branch Name", id: .copyBranchName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
                     add("Rename Branch…", id: .renameBranch, to: sub, enabled: canWrite && occupied == nil) { [weak self] in self?.renameBranchDialog(ref.shortName, repo: repo) }
@@ -119,10 +121,10 @@ extension Controller {
         }
         if let operation = repo.pendingOperation {
             menu.addItem(.separator())
-            add("Continue \(operation.capitalized)…", id: .continueOperation, enabled: !operationRunning) { [weak self] in
+            add("Continue \(operation.capitalized)…", id: .continueOperation, enabled: !operationRunning && activeWorkspace?.associationIssue == nil && activeWorkspace?.assignedBranch != nil) { [weak self] in
                 self?.confirmAction("Continue \(operation.capitalized)", detail: "Resolve conflicts in your editor and stage the resolved files first, then continue the pending \(operation).", repo: repo, action: .continueOperation(operation))
             }
-            add("Abort \(operation.capitalized)…", id: .abortOperation, enabled: !operationRunning) { [weak self] in
+            add("Abort \(operation.capitalized)…", id: .abortOperation, enabled: !operationRunning && activeWorkspace?.associationIssue == nil && activeWorkspace?.assignedBranch != nil) { [weak self] in
                 self?.confirmAction("Abort \(operation.capitalized)", detail: "Abort the pending \(operation) and return to its previous state. Conflict-resolution work may be discarded.", repo: repo, action: .abortOperation(operation), destructive: true)
             }
         }
@@ -253,26 +255,49 @@ extension Controller {
             }
         }
     }
-    func checkoutWorktree(_ commit: Commit, repo: Repository, reference: String? = nil) {
+    func openCommitBranch(_ commit: Commit, repo: Repository, reference: String? = nil) {
         guard !operationRunning, repository?.path == repo.path else { return }
         let refs = repo.references.filter { $0.target == commit.id && !$0.symbolic }
         if let reference, let ref = refs.first(where: { $0.name == reference }) {
-            if ref.name.hasPrefix("refs/remotes/") {
-                navigateRepository(title: "Checking out " + ref.shortName, repo: repo) { try Git.checkoutRemote(ref.name, at: repo.path, expectedSignature: repo.signature) }
-            } else if ref.isBranch { createAutomaticWorktree(start: commit.id, branch: ref.shortName) }
+            if ref.name.hasPrefix("refs/remotes/") { openRemoteWorkspace(ref.name, repo: repo) }
+            else if ref.isBranch { openLocalWorkspace(ref.shortName, repo: repo) }
             else { createAutomaticWorktree(start: commit.id) }
             return
         }
-        // A row can carry several refs. Prefer origin, then a stable lexical order, without a chooser.
-        let remote = refs.filter { $0.name.hasPrefix("refs/remotes/") }.sorted { a, b in
+        let locals = refs.filter(\.isBranch).sorted { a, b in
+            if (a.shortName == repo.branch) != (b.shortName == repo.branch) { return a.shortName == repo.branch }
+            return a.name < b.name
+        }
+        if let local = locals.first { openLocalWorkspace(local.shortName, repo: repo) }
+        else if let remote = refs.filter({ $0.name.hasPrefix("refs/remotes/") }).sorted(by: { a, b in
             if a.shortName.hasPrefix("origin/") != b.shortName.hasPrefix("origin/") { return a.shortName.hasPrefix("origin/") }
             return a.name < b.name
-        }.first
-        if let remote {
-            navigateRepository(title: "Checking out " + remote.shortName, repo: repo) { try Git.checkoutRemote(remote.name, at: repo.path, expectedSignature: repo.signature) }
-        } else {
-            let branch = refs.filter(\.isBranch).sorted { $0.name < $1.name }.first?.shortName
-            createAutomaticWorktree(start: commit.id, branch: branch)
+        }).first { openRemoteWorkspace(remote.name, repo: repo) }
+        else { createAutomaticWorktree(start: commit.id) }
+    }
+    func openLocalWorkspace(_ branch: String, repo: Repository) {
+        navigateRepository(title: "Opening " + branch, repo: repo) { try Git.openLocalBranch(branch, at: repo.path, expectedSignature: repo.signature) }
+    }
+    func openRemoteWorkspace(_ reference: String, repo: Repository) {
+        navigateRepository(title: "Opening remote branch locally", repo: repo) { try Git.openRemoteBranch(reference, at: repo.path, expectedSignature: repo.signature) }
+    }
+    func createLocalBranchOnly(start: String = "HEAD", remote: String? = nil) {
+        guard let repo = repository, !operationRunning else { return }
+        operationRunning = true; branches.isEnabled = false; more.isEnabled = false; spinner.startAnimation(nil)
+        footer.stringValue = "Creating local branch…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result {
+                if let remote { return try Git.createLocalBranchFromRemote(remote, at: repo.path, expectedSignature: repo.signature) }
+                return try Git.createLocalBranch(at: repo.path, start: start, expectedSignature: repo.signature)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.operationRunning = false; self.branches.isEnabled = true; self.more.isEnabled = true; self.spinner.stopAnimation(nil)
+                switch result {
+                case .success: self.refreshNow()
+                case .failure(let error): self.refreshNow(); self.showError(error.localizedDescription)
+                }
+            }
         }
     }
     func resetDialog(_ commit: Commit, repo: Repository) {

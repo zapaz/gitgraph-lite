@@ -211,7 +211,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                         column.width = max(column.width, min(240, CGFloat(self.graph.map(\.width).max() ?? 1)*15+24))
                     }
                     if self.worktreeManager?.window?.isVisible == true { self.worktreeManager?.reload() }
-                    self.repoTitle.stringValue = URL(fileURLWithPath: repo.path).lastPathComponent
+                    self.repoTitle.stringValue = repo.worktrees.first(where: \.isMain)?.name ?? URL(fileURLWithPath: repo.path).lastPathComponent
                     self.repoSubtitle.stringValue = repo.branch + (repo.worktrees.first { Git.samePath($0.path, repo.path) }.map { "  ·  " + $0.stateLabel } ?? "")
                     self.repoTitle.toolTip = repo.path
                     self.repoSubtitle.toolTip = repo.path + "  ·  " + self.repoSubtitle.stringValue
@@ -272,6 +272,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             if !folded.isEmpty { footer.stringValue += " · \(folded.count) groupes repliés (\(folded.reduce(0) { $0 + $1.indices.count }) commits)" }
         }
         more.isHidden = commits.count < limit
+        if let repo = repository, let issue = repo.worktrees.first(where: { Git.samePath($0.path, repo.path) })?.associationIssue { footer.stringValue += " · " + issue }
         if let operation = repository?.pendingOperation { footer.stringValue += " · \(operation) in progress — right-click for Continue / Abort" }
         if rows.isEmpty { clearDetails() } else { loadDetails() }
     }

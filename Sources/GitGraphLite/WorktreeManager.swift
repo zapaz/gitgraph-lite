@@ -24,8 +24,8 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
     let openButton = NSButton(title: "Open", target: nil, action: nil)
     let moveButton = NSButton(title: "Move…", target: nil, action: nil)
     let lockButton = NSButton(title: "Lock", target: nil, action: nil)
-    let removeButton = NSButton(title: "Remove…", target: nil, action: nil)
-    let createButton = NSButton(title: "Create Worktree", target: nil, action: nil)
+    let removeButton = NSButton(title: "Archive…", target: nil, action: nil)
+    let createButton = NSButton(title: "Create and Open Branch", target: nil, action: nil)
     let refreshButton = NSButton(title: "Refresh", target: nil, action: nil)
 
     init(owner: Controller, path: String) {
@@ -137,8 +137,8 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
     }
     @objc func removeSelected() {
         guard let tree = selected else { return }
-        let preserved = tree.branch == nil ? "Its detached HEAD will be saved to a backup branch." : "Its branch is kept."
-        confirm("Remove Worktree", detail: "Remove the folder \(tree.path).\n\n\(preserved) Modified, untracked, locked or active worktrees will not be removed. Git's force option is never used.") { [weak self] in self?.run(.remove(tree.path), title: "Remove Worktree") }
+        let preserved = tree.branch == nil ? "Its detached HEAD will be saved to a backup branch." : "Its local branch is kept. Opening it later recreates its dedicated workspace."
+        confirm("Archive Workspace", detail: "Archive this workspace by removing the folder \(tree.path).\n\n\(preserved) Modified, untracked, locked or active worktrees will not be removed. Git's force option is never used.") { [weak self] in self?.run(.remove(tree.path), title: "Archive Workspace") }
     }
     @objc func moveSelected() {
         guard let tree = selected else { return }

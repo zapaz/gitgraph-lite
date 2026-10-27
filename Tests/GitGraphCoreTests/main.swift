@@ -95,6 +95,7 @@ try checkWorktrees()
 checkReferenceLabels()
 try checkDateOrderedHistory()
 try checkAutomaticNavigation()
+try checkDedicatedWorkspaceRebase()
 
 try checkBranchBrowser()
 checkHistoryGrouping()
