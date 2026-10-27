@@ -19,9 +19,11 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var branchSelection: Set<String>?
     let groupingToggle = NSButton(checkboxWithTitle: "Plié", target: nil, action: nil)
     var expandedGroups = Set<String>()
+    var collapsedGroups = Set<String>()
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
     var historyGroups: [HistoryGroup] = []
     var groupHeaders: [Int: HistoryGroup] = [:]
+    var groupControls: [Int: HistoryGroup] = [:]
     let spinner = NSProgressIndicator()
     let more = NSButton(title: "Load more", target: nil, action: nil)
     var repository: Repository?
@@ -187,7 +189,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         guard !operationRunning else { return }
         worktreeManager?.close()
         comparisonAnchor = nil
-        limit = 500; expandedGroups.removeAll(); branchSelection = nil; branchPopover.close(); search.stringValue = ""
+        limit = 500; expandedGroups.removeAll(); collapsedGroups.removeAll(); branchSelection = nil; branchPopover.close(); search.stringValue = ""
         refresh(path: path, switching: true, focusHead: focusHead)
     }
     @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
@@ -268,7 +270,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"
         if query.isEmpty {
-            let folded = groupsFolded ? historyGroups.filter { !expandedGroups.contains($0.id) } : []
+            let folded = groupHeaders.values
             if !folded.isEmpty {
                 let hidden = folded.reduce(0) { $0 + $1.hiddenCount }
                 footer.stringValue += " · \(folded.count) \(folded.count == 1 ? "groupe replié" : "groupes repliés") (\(hidden) commit\(hidden == 1 ? "" : "s"))"
@@ -295,12 +297,19 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         guard let c = commit(at: row) else { return nil }
         switch id.rawValue {
         case "graph":
-            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell()
+            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell(frame: NSRect(x: 0, y: 0, width: column.width, height: tableView.rowHeight))
             cell.identifier = id; cell.row = visibleGraph[row]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             cell.isFolded = groupHeaders[row] != nil
-            let groupID = groupHeaders[row]?.id
-            cell.unfoldAction = groupID.map { id in { [weak self] in self?.unfoldGroup(id) } }
-            cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "") + (cell.isFolded ? "\nCliquer sur les trois traits pour déplier cette suite." : "")
+            let folded = cell.isFolded
+            cell.foldAction = groupControls[row].map { group in
+                { [weak self] in
+                    if folded { self?.unfoldGroup(group.id) } else { self?.foldGroup(group.id) }
+                }
+            }
+            cell.isHead = c.id == activeHead
+            let actionLabel = groupControls[row].map { "\(folded ? "Déplier" : "Replier") \($0.hiddenCount) commits" }
+            cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "") + (actionLabel.map { "\n\(folded ? "+" : "−") : " + $0 } ?? "")
+            cell.setAccessibilityLabel(actionLabel.map { $0 + " · " + c.subject })
             cell.needsDisplay = true; return cell
         case "subject":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CommitCell) ?? CommitCell()

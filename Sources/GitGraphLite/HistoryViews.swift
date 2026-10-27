@@ -17,13 +17,29 @@ final class GraphCell: NSView {
     var filtered = false
     var isHead = false
     var isFolded = false
-    var unfoldAction: (() -> Void)?
+    var foldAction: (() -> Void)? {
+        didSet {
+            setAccessibilityElement(foldAction != nil && !filtered)
+            setAccessibilityRole(.button)
+            window?.invalidateCursorRects(for: self)
+        }
+    }
     override var isFlipped: Bool { true }
+    private var foldTarget: NSRect {
+        guard let row else { return .zero }
+        return NSRect(x: 16 + CGFloat(row.lane)*15-10, y: bounds.midY-10, width: 20, height: 20)
+    }
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if !filtered, foldAction != nil { addCursorRect(foldTarget.intersection(bounds), cursor: .pointingHand) }
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard !filtered, let foldAction else { return false }
+        foldAction(); return true
+    }
     @discardableResult func handleFoldClick(at point: NSPoint) -> Bool {
-        guard isFolded, !filtered, let row, let unfoldAction else { return false }
-        let marker = NSRect(x: 16 + CGFloat(row.lane)*15-10, y: bounds.midY-9, width: 20, height: 18)
-        guard marker.contains(point) else { return false }
-        unfoldAction(); return true
+        guard !filtered, row != nil, let foldAction, bounds.contains(point), foldTarget.contains(point) else { return false }
+        foldAction(); return true
     }
     override func mouseDown(with event: NSEvent) {
         if !handleFoldClick(at: convert(event.locationInWindow, from: nil)) { super.mouseDown(with: event) }
@@ -44,19 +60,24 @@ final class GraphCell: NSView {
             }
         }
         let position = x(filtered ? 0 : row.lane), color = palette[row.color % palette.count]
+        let hasControl = !filtered && foldAction != nil
+        let radius: CGFloat = hasControl ? 6 : 3
         if isHead {
-            let ring = NSBezierPath(ovalIn: NSRect(x: position-5, y: mid-5, width: 10, height: 10))
+            let ringRadius = radius+2
+            let ring = NSBezierPath(ovalIn: NSRect(x: position-ringRadius, y: mid-ringRadius, width: ringRadius*2, height: ringRadius*2))
             NSColor.textBackgroundColor.setFill(); ring.fill(); color.setStroke(); ring.lineWidth = 1.6; ring.stroke()
         }
-        // Paint the round commit node behind the original, unmoved fold marks.
-        let dot = NSBezierPath(ovalIn: NSRect(x: position-3, y: mid-3, width: 6, height: 6))
+        // Keep the node centered on its lane; its permanent sign is also the fold control.
+        let dot = NSBezierPath(ovalIn: NSRect(x: position-radius, y: mid-radius, width: radius*2, height: radius*2))
         color.setFill(); dot.fill()
         NSColor.textBackgroundColor.setStroke(); dot.lineWidth = 0.7; dot.stroke()
-        if isFolded && !filtered {
-            for offset: CGFloat in [-3, 0, 3] {
-                let mark = NSBezierPath(); mark.move(to: NSPoint(x: position-4, y: mid+offset)); mark.line(to: NSPoint(x: position+4, y: mid+offset))
-                color.setStroke(); mark.lineWidth = 1.8; mark.stroke()
+        if hasControl {
+            let sign = NSBezierPath()
+            sign.move(to: NSPoint(x: position-3, y: mid)); sign.line(to: NSPoint(x: position+3, y: mid))
+            if isFolded {
+                sign.move(to: NSPoint(x: position, y: mid-3)); sign.line(to: NSPoint(x: position, y: mid+3))
             }
+            NSColor.textBackgroundColor.setStroke(); sign.lineWidth = 1.5; sign.lineCapStyle = .round; sign.stroke()
         }
     }
 }
