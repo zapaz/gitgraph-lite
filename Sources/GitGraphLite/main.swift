@@ -21,8 +21,6 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var groupOverrides = Set<String>()
     var historyGroups: [HistoryGroup] = []
     var groupHeaders: [Int: HistoryGroup] = [:]
-    let worktreePicker = NSPopUpButton()
-    let worktreeState = NSTextField(labelWithString: "")
     let spinner = NSProgressIndicator()
     let more = NSButton(title: "Load more", target: nil, action: nil)
     var repository: Repository?
@@ -87,22 +85,6 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         ])
         outer.addArrangedSubview(header)
         outer.addArrangedSubview(separator())
-
-        let worktreeLabel = NSTextField(labelWithString: "WORKTREE")
-        worktreeLabel.font = .systemFont(ofSize: 10, weight: .semibold); worktreeLabel.textColor = .secondaryLabelColor
-        worktreePicker.addItem(withTitle: "Open a repository"); worktreePicker.isEnabled = false
-        worktreePicker.target = self; worktreePicker.action = #selector(worktreeChanged)
-        worktreePicker.widthAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
-        worktreePicker.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        worktreeState.font = .systemFont(ofSize: 11); worktreeState.textColor = .secondaryLabelColor
-        let manage = NSButton(title: "Manage Worktrees…", target: self, action: #selector(showWorktreeManager)); manage.bezelStyle = .rounded
-        manage.widthAnchor.constraint(equalToConstant: 170).isActive = true
-        worktreeState.setContentHuggingPriority(.required, for: .horizontal)
-        let worktreeBar = NSStackView(views: [worktreeLabel, worktreePicker, worktreeState, manage])
-        worktreeBar.distribution = .fill; worktreeBar.spacing = 12
-        worktreeBar.edgeInsets = NSEdgeInsets(top: 5, left: 20, bottom: 5, right: 20)
-        worktreeBar.heightAnchor.constraint(equalToConstant: 34).isActive = true
-        outer.addArrangedSubview(worktreeBar)
 
         branches.bezelStyle = .rounded; branches.target = self; branches.action = #selector(showBranchPicker)
         branches.toolTip = "Filter the commit history. This never changes the branch checked out in this worktree."
@@ -230,10 +212,9 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     if let column = self.table.tableColumns.first(where: { $0.identifier.rawValue == "graph" }) {
                         column.width = max(column.width, min(240, CGFloat(self.graph.map(\.width).max() ?? 1)*15+24))
                     }
-                    self.updateWorktreePicker(repo)
                     if self.worktreeManager?.window?.isVisible == true { self.worktreeManager?.reload() }
                     self.repoTitle.stringValue = URL(fileURLWithPath: repo.path).lastPathComponent
-                    self.repoSubtitle.stringValue = repo.path + "  ·  " + repo.branch
+                    self.repoSubtitle.stringValue = repo.path + "  ·  " + repo.branch + (repo.worktrees.first { Git.samePath($0.path, repo.path) }.map { "  ·  " + $0.stateLabel } ?? "")
                     self.repoSubtitle.toolTip = repo.path
                     self.window?.title = self.repoTitle.stringValue + " — GitGraph Lite"
                     self.branchPins = Set(UserDefaults.standard.stringArray(forKey: self.branchPreferenceKey) ?? [])
@@ -440,6 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let file = submenu("File")
         let open = file.addItem(withTitle: "Open Repository…", action: #selector(Controller.openRepository), keyEquivalent: "o"); open.target = controller
         let reveal = file.addItem(withTitle: "Reveal in Finder", action: #selector(Controller.revealRepository), keyEquivalent: ""); reveal.target = controller
+        let manage = file.addItem(withTitle: "Manage Worktrees…", action: #selector(Controller.showWorktreeManager), keyEquivalent: ""); manage.target = controller
         file.addItem(.separator()); file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         let edit = submenu("Edit")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")

@@ -86,8 +86,8 @@ Mutation dialogs describe the target and effect. Merge, cherry-pick, revert, reb
 
 ## Worktrees (version 0.3)
 
-- A worktree selector switches between folders without changing their checked-out branches or local changes.
-- **Manage Worktrees…** lists every worktree's path, branch or detached HEAD, changed-file count, main/locked/missing/prunable state.
+- Use the branch browser’s **Open worktree** / **Create worktree** buttons to navigate between folders. The redundant standalone worktree selector has been removed. Active worktree state appears beside the repository path.
+- **File → Manage Worktrees…** lists every worktree's path, branch or detached HEAD, changed-file count, main/locked/missing/prunable state.
 - Create and open a worktree on an automatically named new branch, or reuse an existing local branch, without supplying a name or location. Existing detached worktrees remain supported for browsing and management.
 - **Create Worktree Here…** in a commit's context menu starts a new worktree from that commit.
 - Move a clean linked worktree, lock/unlock it, or remove it while preserving its branch. Removing a detached worktree first saves its HEAD to a `gitgraph-backup/worktree-...` branch.

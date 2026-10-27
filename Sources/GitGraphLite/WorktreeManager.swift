@@ -2,24 +2,6 @@ import AppKit
 import GitGraphCore
 
 extension Controller {
-    func updateWorktreePicker(_ repo: Repository) {
-        worktreePicker.removeAllItems()
-        worktreePicker.addItems(withTitles: repo.worktrees.map { "\($0.name)  ·  \($0.branchLabel)" })
-        for (i, tree) in repo.worktrees.enumerated() {
-            worktreePicker.item(at: i)?.isEnabled = tree.exists && !tree.isBare
-            worktreePicker.item(at: i)?.toolTip = tree.path + "\n" + tree.stateLabel
-            if Git.samePath(tree.path, repo.path) {
-                worktreePicker.selectItem(at: i); worktreeState.stringValue = tree.stateLabel
-            }
-        }
-        worktreePicker.isEnabled = !operationRunning
-    }
-    @objc func worktreeChanged() {
-        guard !operationRunning, let repo = repository, repo.worktrees.indices.contains(worktreePicker.indexOfSelectedItem) else { return }
-        let tree = repo.worktrees[worktreePicker.indexOfSelectedItem]
-        guard tree.exists && !tree.isBare else { return }
-        worktreeManager?.close(); open(tree.path)
-    }
     @objc func showWorktreeManager() { manageWorktrees(start: nil) }
     func manageWorktrees(start: String?, branch: String? = nil) {
         guard !operationRunning, let repo = repository else { return }

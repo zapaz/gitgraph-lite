@@ -218,14 +218,14 @@ extension Controller {
     func navigateRepository(title: String, repo: Repository, work: @escaping () throws -> NavigationResult) {
         guard !operationRunning, repository?.path == repo.path else { return }
         operationRunning = true; spinner.startAnimation(nil)
-        branches.isEnabled = false; worktreePicker.isEnabled = false; more.isEnabled = false
+        branches.isEnabled = false; more.isEnabled = false
         footer.stringValue = title + "…"
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = Result { try work() }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.operationRunning = false; self.spinner.stopAnimation(nil)
-                self.branches.isEnabled = true; self.worktreePicker.isEnabled = true; self.more.isEnabled = true
+                self.branches.isEnabled = true; self.more.isEnabled = true
                 switch result {
                 case .success(let destination): self.open(destination.path, focusHead: true)
                 case .failure(let error): self.refreshNow(); self.showError(error.localizedDescription)
