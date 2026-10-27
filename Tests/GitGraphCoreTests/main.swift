@@ -95,3 +95,7 @@ try checkWorktrees()
 checkReferenceLabels()
 try checkDateOrderedHistory()
 try checkAutomaticNavigation()
+
+try checkBranchBrowser()
+checkHistoryGrouping()
+checkFileTree()

@@ -15,15 +15,20 @@ extension Git {
 
     public static func automaticWorktree(at path: String, start: String = "HEAD", branch existingBranch: String? = nil) throws -> NavigationResult {
         let trees = try worktrees(at: path)
+        var remoteStart: String?
         if let branch = existingBranch {
             try validateBranch(branch, at: path)
             if let tree = trees.first(where: { $0.branch == "refs/heads/" + branch }) {
                 guard tree.exists && !tree.isBare else { throw GitError(message: "This branch's worktree is unavailable: \(tree.path)") }
                 return NavigationResult(path: tree.path, branch: branch, didCreateWorktree: false, didCreateBranch: false)
             }
-            _ = try run(["show-ref", "--verify", "refs/heads/" + branch], at: path)
+            if (try? run(["show-ref", "--verify", "refs/heads/" + branch], at: path)) == nil {
+                let full = "refs/remotes/origin/" + branch
+                guard try references(at: path).contains(where: { $0.name == full && !$0.symbolic }) else { throw GitError(message: "Branch is no longer available: " + branch) }
+                remoteStart = full
+            }
         }
-        let commit = try string(["rev-parse", "--verify", "--end-of-options", (existingBranch.map { "refs/heads/" + $0 } ?? start) + "^{commit}"], at: path)
+        let commit = try string(["rev-parse", "--verify", "--end-of-options", (remoteStart ?? existingBranch.map { "refs/heads/" + $0 } ?? start) + "^{commit}"], at: path)
         let name: String
         if let existingBranch { name = existingBranch }
         else {
@@ -41,9 +46,10 @@ extension Git {
         while FileManager.default.fileExists(atPath: destination.path) || trees.contains(where: { samePath($0.path, destination.path) }) {
             destination = baseFolder.appendingPathComponent(stem + "-\(suffix)"); suffix += 1
         }
-        let source: WorktreeSource = existingBranch == nil ? .newBranch(name: name, start: commit) : .existingBranch(name)
+        let source: WorktreeSource = (existingBranch == nil || remoteStart != nil) ? .newBranch(name: name, start: commit) : .existingBranch(name)
         _ = try performWorktree(.add(path: destination.path, source: source), at: path)
-        return NavigationResult(path: destination.path, branch: name, didCreateWorktree: true, didCreateBranch: existingBranch == nil)
+        if let remoteStart { _ = try run(["branch", "--set-upstream-to=" + remoteStart, "--", name], at: path) }
+        return NavigationResult(path: destination.path, branch: name, didCreateWorktree: true, didCreateBranch: existingBranch == nil || remoteStart != nil)
     }
 
     public static func checkoutRemote(_ reference: String, at path: String, expectedSignature: String? = nil) throws -> NavigationResult {

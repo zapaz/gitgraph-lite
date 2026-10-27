@@ -12,7 +12,15 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     let detailTitle = NSTextField(labelWithString: "Select a commit to inspect its changes")
     let fileTitle = NSTextField(labelWithString: "FILES")
     let search = NSSearchField()
-    let branches = NSPopUpButton()
+    let branches = NSButton(title: "All branches ▾", target: nil, action: nil)
+    let branchPopover = NSPopover()
+    var branchPins = Set<String>()
+    var branchSelection: Set<String>?
+    let groupingPicker = NSPopUpButton()
+    var groupingEnabled = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
+    var expandedGroups = Set<String>()
+    var historyGroups: [HistoryGroup] = []
+    var groupHeaders: [Int: HistoryGroup] = [:]
     let worktreePicker = NSPopUpButton()
     let worktreeState = NSTextField(labelWithString: "")
     let spinner = NSProgressIndicator()
@@ -24,7 +32,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var activeHead: String?
     var visibleIndices: [Int] = []
     var files: [ChangedFile] = []
-    var branchFilter: String?
+    var fileRows: [FileTreeRow] = []
+    var collapsedDirectories = Set<String>()
+    var fileTreeMode = UserDefaults.standard.object(forKey: "fileTreeMode") as? Bool ?? true
+    let fileMode = NSSegmentedControl(labels: ["Tree", "Paths"], trackingMode: .selectOne, target: nil, action: nil)
     var limit = 500
     var target: String?
     var base: String?
@@ -93,14 +104,17 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         worktreeBar.heightAnchor.constraint(equalToConstant: 34).isActive = true
         outer.addArrangedSubview(worktreeBar)
 
-        branches.addItem(withTitle: "All branches (history filter)"); branches.target = self; branches.action = #selector(branchFilterChanged)
+        branches.bezelStyle = .rounded; branches.target = self; branches.action = #selector(showBranchPicker)
         branches.toolTip = "Filter the commit history. This never changes the branch checked out in this worktree."
         branches.widthAnchor.constraint(equalToConstant: 260).isActive = true
         search.placeholderString = "Search loaded commits, authors or hashes"; search.delegate = self
         search.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
         let hint = NSTextField(labelWithString: "⌘-click two commits to compare"); hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         let historyLabel = NSTextField(labelWithString: "HISTORY"); historyLabel.font = .systemFont(ofSize: 10, weight: .semibold); historyLabel.textColor = .secondaryLabelColor
-        let tools = NSStackView(views: [historyLabel, branches, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        groupingPicker.addItems(withTitles: ["Grouping off", "Collapse all groups", "Expand all groups"])
+        groupingPicker.selectItem(at: groupingEnabled ? 1 : 0); groupingPicker.target = self; groupingPicker.action = #selector(groupingChanged)
+        groupingPicker.toolTip = "Group linear histories into blocks of up to 20 commits; expand each group individually."
+        let tools = NSStackView(views: [historyLabel, branches, groupingPicker, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
         tools.heightAnchor.constraint(equalToConstant: 40).isActive = true
         tools.distribution = .fill; search.setContentHuggingPriority(.defaultLow, for: .horizontal)
         outer.addArrangedSubview(tools)
@@ -111,7 +125,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         table.rowHeight = 24; table.intercellSpacing = NSSize(width: 0, height: 0)
         table.allowsMultipleSelection = true; table.usesAlternatingRowBackgroundColors = true
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        for (id, title, width) in [("graph", "Graph", 96.0), ("subject", "Description", 600.0), ("date", "Date", 142.0), ("author", "Author", 100.0), ("hash", "Commit", 78.0)] {
+        for (id, title, width) in [("graph", "Graph", 96.0), ("subject", "Description", 600.0), ("date", "Date", 142.0), ("author", "Author", 90.0), ("hash", "Commit", 100.0)] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id)); column.title = title; column.width = width
             column.minWidth = id == "subject" ? 180 : 55
             column.resizingMask = id == "subject" ? [.autoresizingMask, .userResizingMask] : [.userResizingMask]
@@ -136,7 +150,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         let bottom = NSSplitView(); bottom.isVertical = true; bottom.dividerStyle = .thin
         let filePane = NSStackView(); filePane.orientation = .vertical; filePane.alignment = .leading; filePane.spacing = 0; filePane.distribution = .fill
         fileTitle.font = .systemFont(ofSize: 10, weight: .semibold); fileTitle.textColor = .secondaryLabelColor
-        let fileHeader = NSStackView(views: [fileTitle]); fileHeader.edgeInsets = NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)
+        fileMode.selectedSegment = fileTreeMode ? 0 : 1; fileMode.target = self; fileMode.action = #selector(fileModeChanged); fileMode.controlSize = .small
+        let fileHeader = NSStackView(views: [fileTitle, fileMode]); fileHeader.spacing = 12; fileHeader.edgeInsets = NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)
         fileHeader.heightAnchor.constraint(equalToConstant: 32).isActive = true
         filePane.addArrangedSubview(fileHeader)
         fileTable.delegate = self; fileTable.dataSource = self; fileTable.rowHeight = 27; fileTable.headerView = nil
@@ -192,24 +207,17 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         guard !operationRunning else { return }
         worktreeManager?.close()
         comparisonAnchor = nil
-        limit = 500; branchFilter = nil; search.stringValue = ""
+        limit = 500; branchSelection = nil; branchPopover.close(); search.stringValue = ""
         refresh(path: path, switching: true, focusHead: focusHead)
     }
     @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
     @objc func loadMore() { limit += 500; refreshNow() }
-    @objc func branchFilterChanged() {
-        guard !operationRunning else { return }
-        let i = branches.indexOfSelectedItem
-        branchFilter = i > 0 ? repository?.branches[i-1] : nil
-        limit = 500; refreshNow()
-    }
-
     func refresh(path: String, switching: Bool = false, focusHead: Bool = false) {
         let request = UUID(); loadID = request; loading = true; spinner.startAnimation(nil)
-        let filter = branchFilter, count = limit
+        let selection = branchSelection, pins = branchPins, count = limit
         footer.stringValue = "Loading history…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try Git.load(at: path, branch: filter, limit: count) }
+            let result = Result { try Git.load(at: path, branchNames: selection, pins: pins, limit: count) }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.loadID == request else { return }
                 self.loading = false; self.spinner.stopAnimation(nil)
@@ -228,9 +236,9 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     self.repoSubtitle.stringValue = repo.path + "  ·  " + repo.branch
                     self.repoSubtitle.toolTip = repo.path
                     self.window?.title = self.repoTitle.stringValue + " — GitGraph Lite"
-                    self.branches.removeAllItems(); self.branches.addItem(withTitle: "All branches (history filter)")
-                    self.branches.addItems(withTitles: repo.branches.map { $0.replacingOccurrences(of: "refs/heads/", with: "").replacingOccurrences(of: "refs/remotes/", with: "") })
-                    if let filter, let i = repo.branches.firstIndex(of: filter) { self.branches.selectItem(at: i+1) } else { self.branchFilter = nil }
+                    self.branchPins = Set(UserDefaults.standard.stringArray(forKey: self.branchPreferenceKey) ?? [])
+                    self.updateBranchButton()
+                    (self.branchPopover.contentViewController as? BranchPicker)?.rebuild()
                     UserDefaults.standard.set(repo.path, forKey: "lastRepository")
                     self.applySearch(selected: selected)
                     if switching || self.table.selectedRowIndexes.isEmpty {
@@ -268,10 +276,11 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func applySearch(selected: [String]) {
         let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        visibleIndices = commits.indices.filter { i in
+        let matching = commits.indices.filter { i in
             let c = commits[i]
             return query.isEmpty || "\(c.subject) \(c.author) \(c.id) \(c.decorations)".lowercased().contains(query)
         }
+        rebuildHistoryRows(matching: matching, selected: selected)
         rebuilding = true
         table.reloadData()
         let rows = IndexSet(visibleIndices.indices.filter { selected.contains(commits[visibleIndices[$0]].id) })
@@ -284,28 +293,30 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
 
     func commit(at row: Int) -> Commit? {
-        guard visibleIndices.indices.contains(row) else { return nil }
+        guard visibleIndices.indices.contains(row), groupHeaders[row] == nil else { return nil }
         return commits[visibleIndices[row]]
     }
-    func numberOfRows(in tableView: NSTableView) -> Int { tableView === table ? visibleIndices.count : files.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { tableView === table ? visibleIndices.count : fileRows.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let column = tableColumn else { return nil }
         let id = column.identifier
         if tableView === fileTable {
-            let file = files[row]
-            let label = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")
-            label.identifier = id; label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            label.stringValue = "\(file.status)  \(file.path)"; label.lineBreakMode = .byTruncatingMiddle; label.toolTip = file.path
-            label.textColor = file.status == "A" ? .systemGreen : file.status == "D" ? .systemRed : .labelColor
-            return label
+            return fileRowView(row)
+        }
+        if let group = groupHeaders[row] {
+            if id.rawValue == "subject" { return groupView(group) }
+            if id.rawValue == "graph" {
+                let cell = GraphCell(); cell.row = graph[group.indices.lowerBound]; cell.isGroup = true; return cell
+            }
+            return NSTextField(labelWithString: "")
         }
         guard let c = commit(at: row) else { return nil }
         switch id.rawValue {
         case "graph":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell()
             cell.identifier = id; cell.row = graph[visibleIndices[row]]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
+            cell.isGroup = false; cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
             cell.needsDisplay = true; return cell
         case "subject":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CommitCell) ?? CommitCell()
@@ -314,11 +325,16 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             return cell
         default:
             let label = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")
-            label.identifier = id; label.font = id.rawValue == "hash" ? .monospacedSystemFont(ofSize: 11, weight: .regular) : .systemFont(ofSize: 11)
-            label.textColor = id.rawValue == "hash" ? .secondaryLabelColor : .labelColor; label.lineBreakMode = .byTruncatingTail
-            label.stringValue = id.rawValue == "author" ? c.author : id.rawValue == "date" ? dateFormatter.string(from: c.date) : String(c.id.prefix(8))
+            label.identifier = id; label.font = id.rawValue == "hash" ? .monospacedSystemFont(ofSize: 12, weight: .semibold) : .systemFont(ofSize: 10)
+            label.textColor = id.rawValue == "hash" ? .labelColor : .secondaryLabelColor; label.lineBreakMode = .byTruncatingTail
+            label.stringValue = id.rawValue == "author" ? c.author : id.rawValue == "date" ? dateFormatter.string(from: c.date) : String(c.id.prefix(10))
             label.toolTip = label.stringValue + (id.rawValue == "date" ? " · Commit date, local time" : ""); return label
         }
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        if tableView === fileTable { return fileRows.indices.contains(row) && !fileRows[row].isDirectory }
+        return groupHeaders[row] == nil
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -328,7 +344,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func clearDetails() {
         detailID = UUID(); patchID = UUID(); target = nil; base = nil; files = []
-        fileTable.reloadData(); fileTitle.stringValue = "FILES"
+        fileRows = []; fileTable.reloadData(); fileTitle.stringValue = "FILES"
         detailTitle.stringValue = commits.isEmpty ? "No commits yet" : "Select a commit to inspect its changes"
         message.string = ""; setDiff("")
     }
@@ -346,7 +362,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         guard let repo = repository else { return }
         target = first.id; base = comparisonBase
         let base = self.base, request = UUID(); detailID = request; patchID = UUID()
-        files = []; fileTable.reloadData(); fileTitle.stringValue = "FILES"
+        files = []; fileRows = []; fileTable.reloadData(); fileTitle.stringValue = "FILES"
         detailTitle.stringValue = base == nil ? "\(first.id.prefix(10))  ·  \(first.author)  ·  \(dateFormatter.string(from: first.date))" : "Compare \(base!.prefix(8)) → \(first.id.prefix(8))"
         message.string = "Loading…"; setDiff("")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -360,9 +376,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                 switch result {
                 case .success(let (files, text)):
                     self.files = files; self.message.string = text; self.fileTitle.stringValue = "FILES · \(files.count)"
-                    self.fileTable.reloadData()
-                    if !files.isEmpty { self.fileTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
-                    else { self.setDiff("No file changes for this selection.") }
+                    self.rebuildFileRows()
+                    if files.isEmpty { self.setDiff("No file changes for this selection.") }
                 case .failure(let error): self.message.string = error.localizedDescription
                 }
             }
@@ -371,8 +386,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func loadPatch() {
         let row = fileTable.selectedRow
-        guard files.indices.contains(row), let target, let repo = repository else { return }
-        let file = files[row], base = self.base, request = UUID(); patchID = request
+        guard fileRows.indices.contains(row), let index = fileRows[row].fileIndex, let target, let repo = repository else { return }
+        let file = files[index], base = self.base, request = UUID(); patchID = request
         setDiff("Loading \(file.path)…")
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try Git.patch(at: repo.path, target: target, base: base, file: file.path) }

@@ -59,8 +59,7 @@ extension Controller {
         add("Copy Commit Hash to Clipboard") { [weak self] in self?.copyText(commit.id) }
         add("Copy Commit Subject to Clipboard") { [weak self] in self?.copyText(commit.subject) }
 
-        // Keep the normal menu identical to the reference. Option-right-click exposes Lite's extra tools.
-        if NSEvent.modifierFlags.contains(.option) {
+        do {
             menu.addItem(.separator())
             add("Copy Full Commit Message") { [weak self] in
                 self?.readFromRepository(repo.path) { try Git.message(at: repo.path, commit: commit.id) } completion: { text in self?.copyText(text) }
@@ -68,7 +67,7 @@ extension Controller {
             add("Compare with HEAD") { [weak self] in
                 self?.readFromRepository(repo.path) { try Git.string(["rev-parse", "HEAD"], at: repo.path) } completion: { head in self?.showDetails(for: commit, base: head) }
             }
-            add("Select for Comparison") { [weak self] in self?.comparisonAnchor = commit; self?.footer.stringValue = "Right-click another commit with Option held to compare with \(commit.id.prefix(8))." }
+            add("Select for Comparison") { [weak self] in self?.comparisonAnchor = commit; self?.footer.stringValue = "Right-click another commit to compare with \(commit.id.prefix(8))." }
             if let anchor = comparisonAnchor, anchor.id != commit.id {
                 add("Compare with \(anchor.id.prefix(8))") { [weak self] in self?.showDetails(for: commit, base: anchor.id) }
             }
@@ -117,7 +116,39 @@ extension Controller {
                 self?.confirmAction("Abort \(operation.capitalized)", detail: "Abort the pending \(operation) and return to its previous state. Conflict-resolution work may be discarded.", repo: repo, action: .abortOperation(operation), destructive: true)
             }
         }
-        return menu
+        return compactCommitMenu(menu)
+    }
+
+    func compactCommitMenu(_ full: NSMenu) -> NSMenu {
+        let key = "pinnedCommitActions"
+        let defaults = ["Checkout...", "Create Worktree Here...", "Compare with HEAD", "Copy Commit Hash to Clipboard"]
+        let pins = Set(UserDefaults.standard.stringArray(forKey: key) ?? defaults)
+        let result = NSMenu(); result.autoenablesItems = false
+        let more = NSMenu(); more.autoenablesItems = false
+        let customize = NSMenu(); customize.autoenablesItems = false
+        for item in full.items where !item.isSeparatorItem {
+            let title = item.title
+            // Parameterized and conflict-recovery actions are never stored as preferences.
+            let recovery = title.hasPrefix("Continue ") || title.hasPrefix("Abort ")
+            let stable = !recovery && item.submenu == nil && (!title.hasPrefix("Compare with ") || title == "Compare with HEAD")
+            full.removeItem(item)
+            if recovery || pins.contains(title) { result.addItem(item) } else { more.addItem(item) }
+            if stable {
+                let command = MenuCommand {
+                    var next = Set(UserDefaults.standard.stringArray(forKey: key) ?? defaults)
+                    if next.contains(title) { next.remove(title) } else { next.insert(title) }
+                    UserDefaults.standard.set(next.sorted(), forKey: key)
+                }
+                let toggle = NSMenuItem(title: title, action: #selector(MenuCommand.invoke(_:)), keyEquivalent: "")
+                toggle.target = command; toggle.representedObject = command; toggle.state = pins.contains(title) ? .on : .off
+                customize.addItem(toggle)
+            }
+        }
+        if !result.items.isEmpty { result.addItem(.separator()) }
+        let extra = NSMenuItem(title: "Plus…", action: nil, keyEquivalent: ""); extra.submenu = more; result.addItem(extra)
+        more.addItem(.separator())
+        let settings = NSMenuItem(title: "Pin Actions…", action: nil, keyEquivalent: ""); settings.submenu = customize; more.addItem(settings)
+        return result
     }
 
     func copyText(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }

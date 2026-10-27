@@ -16,6 +16,7 @@ final class GraphCell: NSView {
     var row: GraphRow?
     var filtered = false
     var isHead = false
+    var isGroup = false
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         guard let row else { return }
@@ -33,6 +34,13 @@ final class GraphCell: NSView {
             }
         }
         let position = x(filtered ? 0 : row.lane), color = palette[row.color % palette.count]
+        if isGroup {
+            for offset: CGFloat in [-3, 0, 3] {
+                let mark = NSBezierPath(); mark.move(to: NSPoint(x: position-4, y: mid+offset)); mark.line(to: NSPoint(x: position+4, y: mid+offset))
+                color.setStroke(); mark.lineWidth = 1.8; mark.stroke()
+            }
+            return
+        }
         if isHead {
             let ring = NSBezierPath(ovalIn: NSRect(x: position-5, y: mid-5, width: 10, height: 10))
             NSColor.textBackgroundColor.setFill(); ring.fill(); color.setStroke(); ring.lineWidth = 1.6; ring.stroke()

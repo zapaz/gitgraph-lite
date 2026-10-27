@@ -16,6 +16,7 @@ public struct Commit: Equatable {
 public struct ChangedFile: Equatable {
     public let status: String
     public let path: String
+    public init(status: String, path: String) { self.status = status; self.path = path }
 }
 
 public struct Repository {
@@ -23,6 +24,7 @@ public struct Repository {
     public let branch: String
     public let branches: [String]
     public let commits: [Commit]
+    public let branchGroups: [BranchGroup]
     public let signature: String
     public let references: [GitReference]
     public let pendingOperation: String?
@@ -89,19 +91,33 @@ public enum Git {
     }
 
     public static func load(at input: String, branch filter: String?, limit: Int) throws -> Repository {
+        try load(at: input, branches: filter.map { [$0] }, limit: limit)
+    }
+
+    public static func load(at input: String, branchNames: Set<String>?, pins: Set<String>, limit: Int) throws -> Repository {
+        guard let branchNames else { return try load(at: input, branches: nil, limit: limit) }
+        let remotes = try string(["remote"], at: input).split(separator: "\n").map(String.init)
+        let groups = BranchGroup.make(try references(at: input), remotes: remotes)
+        return try load(at: input, branches: BranchGroup.historyReferences(groups, selection: branchNames, pins: pins), limit: limit)
+    }
+
+    public static func load(at input: String, branches filters: [String]?, limit: Int) throws -> Repository {
         let path = try string(["rev-parse", "--show-toplevel"], at: input)
         let branch = (try? string(["symbolic-ref", "--quiet", "--short", "HEAD"], at: path)) ?? "Detached HEAD"
         let branches = try string(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], at: path).split(separator: "\n").map(String.init)
         let hasHead = (try? string(["rev-parse", "--verify", "HEAD"], at: path)) != nil
         let trees = try worktrees(at: path)
         var args = ["log", "--date-order", "-z", "--format=%H%x00%P%x00%an%x00%ct%x00%D%x00%s", "--max-count=\(limit)"]
-        if let filter, branches.contains(filter) { args += [filter] } else {
+        if let filters { args += filters.filter { branches.contains($0) } } else {
             args += ["--all"]; if hasHead { args += ["HEAD"] }
             args += trees.map(\.head).filter { !$0.isEmpty && $0.contains(where: { $0 != "0" }) }
         }
         args += ["--"]
-        let commits = hasHead || !branches.isEmpty ? try parseLog(run(args, at: path)) : []
-        return Repository(path: path, branch: branch, branches: branches, commits: commits, signature: try signature(at: path), references: try references(at: path), pendingOperation: try pendingOperation(at: path), worktrees: trees)
+        let validFilters = filters.map { $0.filter { branches.contains($0) } }
+        let commits = (hasHead || !branches.isEmpty) && validFilters?.isEmpty != true ? try parseLog(run(args, at: path)) : []
+        let refs = try references(at: path)
+        let remotes = try string(["remote"], at: path).split(separator: "\n").map(String.init)
+        return Repository(path: path, branch: branch, branches: branches, commits: commits, branchGroups: BranchGroup.make(refs, remotes: remotes), signature: try signature(at: path), references: refs, pendingOperation: try pendingOperation(at: path), worktrees: trees)
     }
 
     public static func message(at path: String, commit: String) throws -> String {

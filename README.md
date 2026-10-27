@@ -24,6 +24,16 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 - ⌘R refreshes, ⌘F searches, ⇧⌘C copies selected commit hashes.
 - Terminal: `open -a "/path/to/GitGraph Lite.app" --args --repo "/path/to/repository"`.
 
+## Branch browser and compact history (version 0.8)
+
+- The HISTORY picker supports multiple branches. A branch name includes its local and origin references, even when their tips diverge. Filtering never checks out a branch.
+- `main` and `master`, when present, are always pinned and included in filtered history. Star other branches to keep them visible too. Pins persist per repository and are shared between its worktrees. Pinning controls history visibility, not Git write permissions.
+- Each branch shows its local/remote versions and associated worktree, with **Open worktree** or one-click **Create worktree**. Remote-only origin branches create a same-named tracking local branch in a new worktree; the active folder is preserved.
+- Linear history is grouped into blocks of 5–20 commits by default. Expand/collapse individual groups or use the top-level grouping menu. Branch/tag tips, worktree HEADs, merge commits, junctions and lane transitions remain visible. Searching temporarily shows individual commits.
+- The context menu shows pinned actions first and puts all other actions under **Plus…**. Use **Plus… → Pin Actions…** to choose visible actions. Preferences persist across launches. Continue/Abort remain directly available during conflict recovery.
+- Changed files default to a collapsible **Tree** view; **Paths** restores the full-path list. File mode persists across launches.
+- Commit hashes use ten characters and stronger monospace text; date and author use smaller secondary text.
+
 ## Branch navigation (version 0.7)
 
 Worktree creation is automatic. **Create Branch...**, **Create Worktree Here** and the manager's **Create Worktree** button generate a branch name from the commit subject/hash, choose an available folder and open it without a form, location chooser or success dialog. Folders are placed beside the main checkout in `<repository>-worktrees/`; existing folders/branches are never overwritten.
@@ -39,7 +49,7 @@ Worktree creation is automatic. **Create Branch...**, **Create Worktree Here** a
 
 ## Commit context menu
 
-The normal menu follows the legacy Git Graph labels, order and separators:
+Actions retain the legacy Git Graph names. Pinned actions appear directly; the rest are under **Plus…**. The available actions include:
 
 ```text
 Add Tag...
@@ -59,7 +69,7 @@ Copy Commit Subject to Clipboard
 
 Reset opens a dialog offering soft/mixed/hard modes. Remote checkout uses the current folder and the same local branch name, without the remote prefix. Local checkout opens or automatically creates a worktree. A commit with no branch gets a new automatically named branch/worktree.
 
-Hold **Option** while right-clicking for Lite's additional comparison, full-message copy, drop and branch/tag management actions. Pending operations still expose Continue/Abort for conflict recovery.
+All actions, including comparison, full-message copy, drop and branch/tag management, are available under **Plus…** unless pinned. Use **Plus… → Pin Actions…** to customize the visible menu. Pending operations always expose Continue/Abort directly for conflict recovery.
 
 The menus support:
 
@@ -88,7 +98,7 @@ Mutation dialogs describe the target and effect. Merge, cherry-pick, revert, reb
 
 ## Scope
 
-Version 0.7 adds automatic worktree creation and same-folder remote checkout to the compact history view, enhanced unified viewer and local history operations. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
+Version 0.8 adds a multi-branch browser, persistent pins, collapsible history, customizable action menus and a changed-file tree, alongside automatic worktree creation and same-folder remote checkout to the compact history view, enhanced unified viewer and local history operations. Remote fetch/pull/push, stash management, staging/committing and a conflict editor remain outside this version; it does not reproduce every feature of the VS Code extension. Use Fork or your editor for those workflows. Worktree change counts are displayed, but uncommitted diffs are not. Merge diffs use the first parent. Renames appear as deletion/addition. Diff previews are capped at 2 MB. Search covers loaded commits; graph connections are hidden during search. Wide graphs may require widening the GRAPH column. Bare repositories are not supported as the active repository.
 
 For repositories in macOS protected folders, use **Open Repository…** and grant access when macOS requests it.
 
