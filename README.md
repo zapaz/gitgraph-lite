@@ -135,3 +135,7 @@ The application icon is in `Assets/` and is bundled for Finder and the Dock. Its
 - The window layout was checked visually. Large-repository performance and public distribution have not been validated.
 
 AppKit grouping regression checks (after building, with a macOS desktop session): `zsh Tests/check-grouping-ui.sh`. These exercise global and per-group collapse after selecting interior commits, repeated commands, hidden selections and search restoration.
+
+## License
+
+Copyright (c) 2026 zapaz. The source code, documentation and original assets are distributed under the [MIT License](LICENSE). The license is also included in the macOS app bundle and distribution archive.
