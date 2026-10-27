@@ -6,11 +6,11 @@ A small native macOS Git history browser, inspired by the compact workflow of VS
 
 ## Download
 
-**[Latest release](https://github.com/zapaz/gitgraph-lite/releases/latest)** · [Download 0.8.6 for Apple Silicon](https://github.com/zapaz/gitgraph-lite/releases/download/v0.8.6/GitGraph-Lite-0.8.6-macOS-arm64.zip) · [All releases](https://github.com/zapaz/gitgraph-lite/releases)
+**[Latest release](https://github.com/zapaz/gitgraph-lite/releases/latest)** · [Download 0.9.0 for Apple Silicon](https://github.com/zapaz/gitgraph-lite/releases/download/v0.9.0/GitGraph-Lite-0.9.0-macOS-arm64.zip) · [All releases](https://github.com/zapaz/gitgraph-lite/releases)
 
 Requires macOS 13 or later and Apple Silicon (M1 or newer). Unzip and drag **GitGraph Lite.app** into **Applications**. Each release includes a ZIP, the MIT license notice and a SHA-256 checksum file. The app is not notarized by Apple.
 
-Historical downloads cover **0.1.0 through 0.8.6**. Version 0.2.0 is a preserved binary-only release: its tag contains archival metadata because the exact intermediate source snapshot was not retained.
+Historical downloads cover **0.1.0 through 0.9.0**. Version 0.2.0 is a preserved binary-only release: its tag contains archival metadata because the exact intermediate source snapshot was not retained.
 
 ## Run
 
@@ -40,7 +40,7 @@ The header uses a single compact row for the repository, active branch/state, br
 - `main` and `master`, when present, are always pinned and included in filtered history. Star other branches to keep them visible too. Pins persist per repository and are shared between its worktrees. Pinning controls history visibility, not Git write permissions.
 - Each branch shows its local/remote versions and associated worktree, with **Open worktree** or one-click **Create worktree**. Remote-only origin branches create a same-named tracking local branch in a new worktree; the active folder is preserved.
 - Linear history is grouped into blocks of 3–20 commits by default. Group boundaries stay stable when selecting commits, and hidden selections are cleared when collapsing. A single checkbox controls the default: checked **Plié** collapses all groups, unchecked **Déplié** expands all groups. Individual groups can be toggled in either state; clicking the checkbox resets those exceptions. The setting persists across launches. Expand/collapse individual groups or use the top-level fold checkbox. Branch/tag tips, worktree HEADs, merge commits and junctions remain visible. Groups follow Git parent links even when other branches are interleaved in date order. The visible graph is rebuilt around the folded nodes so connections remain correct. The footer reports the folded group and commit counts. Searching temporarily shows individual commits.
-- The context menu shows pinned actions first and puts all other actions under **Plus…**. Use **Plus… → Pin Actions…** to choose visible actions. Preferences persist across launches. Continue/Abort remain directly available during conflict recovery.
+- The context menu shows the five most-clicked available actions; the rest appear under **Plus…**, also sorted by use. Counts persist locally on this Mac across repositories and app restarts, using stable action identifiers. No cloud sync or telemetry is used. A fresh computer/profile starts at zero. Equal counts use a fixed default order. Branch/tag actions with several targets share one ranked slot and offer an explicit target submenu. Choosing an action counts once, even if its subsequent dialog is cancelled; merely opening menus does not count.
 - Changed files default to a collapsible **Tree** view; **Paths** restores the full-path list. File mode persists across launches.
 - Commit hashes use ten characters and stronger monospace text; date and author use smaller secondary text.
 
@@ -59,7 +59,7 @@ Worktree creation is automatic. **Create Branch...**, **Create Worktree Here** a
 
 ## Commit context menu
 
-Actions retain the legacy Git Graph names. Pinned actions appear directly; the rest are under **Plus…**. The available actions include:
+Actions retain the legacy Git Graph names. The five most-used actions appear directly; the rest are under **Plus…**. The available actions include:
 
 ```text
 Add Tag...
@@ -79,7 +79,7 @@ Copy Commit Subject to Clipboard
 
 Reset opens a dialog offering soft/mixed/hard modes. Remote checkout uses the current folder and the same local branch name, without the remote prefix. Local checkout opens or automatically creates a worktree. A commit with no branch gets a new automatically named branch/worktree.
 
-All actions, including comparison, full-message copy, drop and branch/tag management, are available under **Plus…** unless pinned. Use **Plus… → Pin Actions…** to customize the visible menu. Pending operations always expose Continue/Abort directly for conflict recovery.
+All actions, including comparison, full-message copy, drop, branch/tag management and conflict recovery, participate in the local usage ranking. The top five appear directly and the rest are under **Plus…**. Manual action pins have been replaced by this automatic ordering. Disabled actions cannot be invoked or counted.
 
 The menus support:
 
@@ -142,7 +142,7 @@ The application icon is in `Assets/` and is bundled for Finder and the Dock. Its
 - Live app checks confirm commit/file/diff display, two-commit comparison, search filtering, and automatic appearance of an externally created tag.
 - The window layout was checked visually. Large-repository performance and public distribution have not been validated.
 
-AppKit grouping regression checks (after building, with a macOS desktop session): `zsh Tests/check-grouping-ui.sh`. These exercise global and per-group collapse after selecting interior commits, repeated commands, hidden selections and search restoration.
+AppKit grouping and adaptive-menu regression checks (after building, with a macOS desktop session): `zsh Tests/check-grouping-ui.sh`. These exercise global and per-group collapse after selecting interior commits, repeated commands, hidden selections, search restoration, local click persistence, frequency ordering, top-five promotion and multi-ref action targets.
 
 ## License
 

@@ -3,6 +3,7 @@ import GitGraphCore
 
 final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
     let table = CommitTableView()
+    var actionUsage = ActionUsage()
     let fileTable = NSTableView()
     let diffViewer = DiffViewer()
     let message = NSTextView()

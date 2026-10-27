@@ -9,7 +9,7 @@ mkdir -p "$CHECK" "$WORK/cache/clang"
 export CLANG_MODULE_CACHE_PATH="$WORK/cache/clang"
 # Compile the real app sources, replacing only its event-loop entry point.
 sed '/^let app = NSApplication.shared/,$d' "$ROOT/Sources/GitGraphLite/main.swift" > "$CHECK/main.swift"
-cat "$ROOT/Tests/GroupingUI.swift" >> "$CHECK/main.swift"
+cat "$ROOT/Tests/GroupingUI.swift" "$ROOT/Tests/MenuUsageUI.swift" >> "$CHECK/main.swift"
 SOURCES=("$ROOT"/Sources/GitGraphLite/*.swift)
 SOURCES=("${(@)SOURCES:#*/main.swift}")
 swiftc -module-cache-path "$WORK/cache/clang" -I "$BUILD/Modules" "${SOURCES[@]}" "$CHECK/main.swift" "$BUILD"/GitGraphCore.build/*.o -o "$CHECK/GroupingUIChecks"

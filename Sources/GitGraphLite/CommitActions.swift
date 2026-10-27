@@ -15,66 +15,76 @@ final class CommitTableView: NSTableView {
     }
 }
 
-private final class MenuCommand: NSObject {
+final class MenuCommand: NSObject {
+    let id: CommitActionID
+    let context: String?
+    let usage: ActionUsage
     let handler: () -> Void
-    init(_ handler: @escaping () -> Void) { self.handler = handler }
-    @objc func invoke(_ sender: Any?) { handler() }
+    init(id: CommitActionID, context: String? = nil, usage: ActionUsage, handler: @escaping () -> Void) {
+        self.id = id; self.context = context; self.usage = usage; self.handler = handler
+    }
+    @objc func invoke(_ sender: Any?) {
+        guard (sender as? NSMenuItem)?.isEnabled != false else { return }
+        usage.record(id)
+        handler()
+    }
 }
 
 extension Controller {
     func commitMenu(at row: Int, reference: String? = nil) -> NSMenu? {
         guard let commit = commit(at: row), let repo = repository else { return nil }
         let menu = NSMenu(); menu.autoenablesItems = false
-        @discardableResult func add(_ title: String, to parent: NSMenu? = nil, enabled: Bool = true, _ handler: @escaping () -> Void) -> NSMenuItem {
-            let command = MenuCommand(handler)
+        @discardableResult func add(_ title: String, id: CommitActionID, to parent: NSMenu? = nil, enabled: Bool = true, _ handler: @escaping () -> Void) -> NSMenuItem {
+            let command = MenuCommand(id: id, context: parent?.title, usage: actionUsage, handler: handler)
             let item = NSMenuItem(title: title, action: #selector(MenuCommand.invoke(_:)), keyEquivalent: "")
             item.target = command; item.representedObject = command; item.isEnabled = enabled
+            item.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
             (parent ?? menu).addItem(item)
             return item
         }
         func submenu(_ title: String) -> NSMenu {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            let sub = NSMenu(); sub.autoenablesItems = false; item.submenu = sub; menu.addItem(item); return sub
+            let sub = NSMenu(title: title); sub.autoenablesItems = false; item.submenu = sub; menu.addItem(item); return sub
         }
         let canWrite = !loading && !operationRunning && repo.pendingOperation == nil
         let canOpenWorktree = !loading && !operationRunning
         let current = repo.branch
 
-        add("Add Tag...", enabled: canWrite) { [weak self] in self?.tagDialog(commit, repo: repo) }
-        add("Create Branch...", enabled: canOpenWorktree) { [weak self] in
+        add("Add Tag...", id: .addTag, enabled: canWrite) { [weak self] in self?.tagDialog(commit, repo: repo) }
+        add("Create Branch...", id: .createBranch, enabled: canOpenWorktree) { [weak self] in
             self?.manageWorktrees(start: commit.id)
         }.toolTip = "Create the new branch in a separate worktree. The current folder stays on its branch."
         menu.addItem(.separator())
-        add("Checkout...", enabled: canOpenWorktree) { [weak self] in self?.checkoutWorktree(commit, repo: repo, reference: reference) }
+        add("Checkout...", id: .checkout, enabled: canOpenWorktree) { [weak self] in self?.checkoutWorktree(commit, repo: repo, reference: reference) }
             .toolTip = "Remote branches check out their same-named local branch here. Local branches open or create their worktree."
-        add("Cherry Pick...", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
-        add("Revert...", enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
+        add("Cherry Pick...", id: .cherryPick, enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
+        add("Revert...", id: .revert, enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
         menu.addItem(.separator())
-        add("Merge into current branch...", enabled: canWrite) { [weak self] in self?.mergeDialog(commit, repo: repo) }
-        add("Rebase current branch on this Commit...", enabled: canWrite) { [weak self] in
+        add("Merge into current branch...", id: .merge, enabled: canWrite) { [weak self] in self?.mergeDialog(commit, repo: repo) }
+        add("Rebase current branch on this Commit...", id: .rebase, enabled: canWrite) { [weak self] in
             self?.confirmAction("Rebase Current Branch", detail: "Rebase \(current) onto \(commit.id.prefix(8)). This rewrites commit hashes and preserves merge structure. A backup branch will save the previous HEAD. A clean working tree is required.", repo: repo, action: .rebase(commit.id), destructive: true)
         }
-        add("Reset current branch to this Commit...", enabled: canWrite) { [weak self] in self?.resetDialog(commit, repo: repo) }
+        add("Reset current branch to this Commit...", id: .reset, enabled: canWrite) { [weak self] in self?.resetDialog(commit, repo: repo) }
         menu.addItem(.separator())
-        add("Copy Commit Hash to Clipboard") { [weak self] in self?.copyText(commit.id) }
-        add("Copy Commit Subject to Clipboard") { [weak self] in self?.copyText(commit.subject) }
+        add("Copy Commit Hash to Clipboard", id: .copyHash) { [weak self] in self?.copyText(commit.id) }
+        add("Copy Commit Subject to Clipboard", id: .copySubject) { [weak self] in self?.copyText(commit.subject) }
 
         do {
             menu.addItem(.separator())
-            add("Copy Full Commit Message") { [weak self] in
+            add("Copy Full Commit Message", id: .copyMessage) { [weak self] in
                 self?.readFromRepository(repo.path) { try Git.message(at: repo.path, commit: commit.id) } completion: { text in self?.copyText(text) }
             }
-            add("Compare with HEAD") { [weak self] in
+            add("Compare with HEAD", id: .compareHead) { [weak self] in
                 self?.readFromRepository(repo.path) { try Git.string(["rev-parse", "HEAD"], at: repo.path) } completion: { head in self?.showDetails(for: commit, base: head) }
             }
-            add("Select for Comparison") { [weak self] in self?.comparisonAnchor = commit; self?.footer.stringValue = "Right-click another commit to compare with \(commit.id.prefix(8))." }
+            add("Select for Comparison", id: .selectComparison) { [weak self] in self?.comparisonAnchor = commit; self?.footer.stringValue = "Right-click another commit to compare with \(commit.id.prefix(8))." }
             if let anchor = comparisonAnchor, anchor.id != commit.id {
-                add("Compare with \(anchor.id.prefix(8))") { [weak self] in self?.showDetails(for: commit, base: anchor.id) }
+                add("Compare with \(anchor.id.prefix(8))", id: .compareAnchor) { [weak self] in self?.showDetails(for: commit, base: anchor.id) }
             }
             let selected = table.selectedRowIndexes.compactMap { self.commit(at: $0) }
-            if selected.count == 2 { add("Compare Selected Commits") { [weak self] in self?.showDetails(for: selected[0], base: selected[1].id) } }
-            add("Create Worktree Here...", enabled: canOpenWorktree) { [weak self] in self?.manageWorktrees(start: commit.id) }
-            add("Drop Commit...", enabled: canWrite && commit.parents.count == 1) { [weak self] in
+            if selected.count == 2 { add("Compare Selected Commits", id: .compareSelected) { [weak self] in self?.showDetails(for: selected[0], base: selected[1].id) } }
+            add("Create Worktree Here...", id: .createWorktree, enabled: canOpenWorktree) { [weak self] in self?.manageWorktrees(start: commit.id) }
+            add("Drop Commit...", id: .drop, enabled: canWrite && commit.parents.count == 1) { [weak self] in
                 self?.confirmAction("Drop Commit", detail: "Remove \(commit.id.prefix(8)) from the current branch's history and replay its descendants. This rewrites commit hashes. The commit must be an ancestor of \(current). A backup branch will save the previous HEAD.", repo: repo, action: .drop(commit.id), destructive: true)
             }
             for ref in repo.references where ref.target == commit.id && !ref.symbolic {
@@ -82,26 +92,26 @@ extension Controller {
                 guard ref.isBranch || ref.isTag || remote else { continue }
                 let sub = submenu((remote ? "Remote Branch: " : ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
                 if remote {
-                    add("Checkout \(ref.shortName) in This Worktree", to: sub, enabled: canWrite) { [weak self] in
+                    add("Checkout \(ref.shortName) in This Worktree", id: .checkoutRemote, to: sub, enabled: canWrite) { [weak self] in
                         self?.navigateRepository(title: "Checking out " + ref.shortName, repo: repo) { try Git.checkoutRemote(ref.name, at: repo.path, expectedSignature: repo.signature) }
                     }
-                    add("Copy Branch Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
+                    add("Copy Branch Name", id: .copyBranchName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
                 } else if ref.isBranch {
                     let occupied = repo.worktrees.first { $0.branch == ref.name }
                     if let occupied {
                         let active = Git.samePath(occupied.path, repo.path)
-                        add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", to: sub, enabled: occupied.exists && !operationRunning && !active) { [weak self] in self?.open(occupied.path) }
+                        add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", id: .openWorktree, to: sub, enabled: occupied.exists && !operationRunning && !active) { [weak self] in self?.open(occupied.path) }
                     } else {
-                        add("Create Worktree on This Branch…", to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
+                        add("Create Worktree on This Branch…", id: .createBranchWorktree, to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
                     }
-                    add("Copy Branch Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                    add("Rename Branch…", to: sub, enabled: canWrite && occupied == nil) { [weak self] in self?.renameBranchDialog(ref.shortName, repo: repo) }
-                    add("Delete Branch…", to: sub, enabled: canWrite && ref.shortName != current && occupied == nil) { [weak self] in
+                    add("Copy Branch Name", id: .copyBranchName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
+                    add("Rename Branch…", id: .renameBranch, to: sub, enabled: canWrite && occupied == nil) { [weak self] in self?.renameBranchDialog(ref.shortName, repo: repo) }
+                    add("Delete Branch…", id: .deleteBranch, to: sub, enabled: canWrite && ref.shortName != current && occupied == nil) { [weak self] in
                         self?.confirmAction("Delete Branch", detail: "Delete local branch \(ref.shortName). Git will refuse if it contains unmerged work. The branch will not be deleted from any remote.", repo: repo, action: .deleteBranch(ref.shortName), destructive: true)
                     }
                 } else {
-                    add("Copy Tag Name", to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                    add("Delete Tag…", to: sub, enabled: canWrite) { [weak self] in
+                    add("Copy Tag Name", id: .copyTagName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
+                    add("Delete Tag…", id: .deleteTag, to: sub, enabled: canWrite) { [weak self] in
                         self?.confirmAction("Delete Tag", detail: "Delete local tag \(ref.shortName). The tag will not be deleted from any remote.", repo: repo, action: .deleteTag(ref.shortName), destructive: true)
                     }
                 }
@@ -109,10 +119,10 @@ extension Controller {
         }
         if let operation = repo.pendingOperation {
             menu.addItem(.separator())
-            add("Continue \(operation.capitalized)…", enabled: !operationRunning) { [weak self] in
+            add("Continue \(operation.capitalized)…", id: .continueOperation, enabled: !operationRunning) { [weak self] in
                 self?.confirmAction("Continue \(operation.capitalized)", detail: "Resolve conflicts in your editor and stage the resolved files first, then continue the pending \(operation).", repo: repo, action: .continueOperation(operation))
             }
-            add("Abort \(operation.capitalized)…", enabled: !operationRunning) { [weak self] in
+            add("Abort \(operation.capitalized)…", id: .abortOperation, enabled: !operationRunning) { [weak self] in
                 self?.confirmAction("Abort \(operation.capitalized)", detail: "Abort the pending \(operation) and return to its previous state. Conflict-resolution work may be discarded.", repo: repo, action: .abortOperation(operation), destructive: true)
             }
         }
@@ -120,34 +130,44 @@ extension Controller {
     }
 
     func compactCommitMenu(_ full: NSMenu) -> NSMenu {
-        let key = "pinnedCommitActions"
-        let defaults = ["Checkout...", "Create Worktree Here...", "Compare with HEAD", "Copy Commit Hash to Clipboard"]
-        let pins = Set(UserDefaults.standard.stringArray(forKey: key) ?? defaults)
-        let result = NSMenu(); result.autoenablesItems = false
-        let more = NSMenu(); more.autoenablesItems = false
-        let customize = NSMenu(); customize.autoenablesItems = false
-        for item in full.items where !item.isSeparatorItem {
-            let title = item.title
-            // Parameterized and conflict-recovery actions are never stored as preferences.
-            let recovery = title.hasPrefix("Continue ") || title.hasPrefix("Abort ")
-            let stable = !recovery && item.submenu == nil && (!title.hasPrefix("Compare with ") || title == "Compare with HEAD")
-            full.removeItem(item)
-            if recovery || pins.contains(title) { result.addItem(item) } else { more.addItem(item) }
-            if stable {
-                let command = MenuCommand {
-                    var next = Set(UserDefaults.standard.stringArray(forKey: key) ?? defaults)
-                    if next.contains(title) { next.remove(title) } else { next.insert(title) }
-                    UserDefaults.standard.set(next.sorted(), forKey: key)
+        var items: [CommitActionID: [NSMenuItem]] = [:]
+        func collect(_ menu: NSMenu) {
+            for item in menu.items {
+                if let sub = item.submenu { collect(sub) }
+                else if let command = item.representedObject as? MenuCommand {
+                    menu.removeItem(item)
+                    items[command.id, default: []].append(item)
                 }
-                let toggle = NSMenuItem(title: title, action: #selector(MenuCommand.invoke(_:)), keyEquivalent: "")
-                toggle.target = command; toggle.representedObject = command; toggle.state = pins.contains(title) ? .on : .off
-                customize.addItem(toggle)
             }
         }
-        if !result.items.isEmpty { result.addItem(.separator()) }
-        let extra = NSMenuItem(title: "Plus…", action: nil, keyEquivalent: ""); extra.submenu = more; result.addItem(extra)
-        more.addItem(.separator())
-        let settings = NSMenuItem(title: "Pin Actions…", action: nil, keyEquivalent: ""); settings.submenu = customize; more.addItem(settings)
+        collect(full)
+        let result = NSMenu(); result.autoenablesItems = false
+        let more = NSMenu(); more.autoenablesItems = false
+        for (index, id) in actionUsage.ranked(Array(items.keys)).enumerated() {
+            let choices = items[id]!
+            let item: NSMenuItem
+            if choices.count == 1 {
+                item = choices[0]
+                if let command = item.representedObject as? MenuCommand, let context = command.context {
+                    item.title += " — " + context
+                }
+            } else {
+                // One ranked action, several possible refs: keep targets explicit without taking several top-five slots.
+                item = NSMenuItem(title: id.title, action: nil, keyEquivalent: "")
+                item.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
+                let targets = NSMenu(title: id.title); targets.autoenablesItems = false
+                for choice in choices {
+                    if let command = choice.representedObject as? MenuCommand, let context = command.context { choice.title = context }
+                    targets.addItem(choice)
+                }
+                item.submenu = targets; item.isEnabled = choices.contains { $0.isEnabled }
+            }
+            (index < 5 ? result : more).addItem(item)
+        }
+        if !more.items.isEmpty {
+            result.addItem(.separator())
+            let extra = NSMenuItem(title: "Plus…", action: nil, keyEquivalent: ""); extra.submenu = more; result.addItem(extra)
+        }
         return result
     }
 
