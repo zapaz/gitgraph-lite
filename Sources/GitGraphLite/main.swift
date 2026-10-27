@@ -16,9 +16,9 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     let branchPopover = NSPopover()
     var branchPins = Set<String>()
     var branchSelection: Set<String>?
-    let groupingPicker = NSPopUpButton(frame: .zero, pullsDown: true)
-    var groupingEnabled = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
-    var expandedGroups = Set<String>()
+    let groupingToggle = NSButton(checkboxWithTitle: "Plié", target: nil, action: nil)
+    var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
+    var groupOverrides = Set<String>()
     var historyGroups: [HistoryGroup] = []
     var groupHeaders: [Int: HistoryGroup] = [:]
     let worktreePicker = NSPopUpButton()
@@ -111,15 +111,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         search.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
         let hint = NSTextField(labelWithString: "⌘-click two commits to compare"); hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         let historyLabel = NSTextField(labelWithString: "HISTORY"); historyLabel.font = .systemFont(ofSize: 10, weight: .semibold); historyLabel.textColor = .secondaryLabelColor
-        groupingPicker.addItem(withTitle: "Groups")
-        for (tag, title) in ["Grouping off", "Collapse all groups", "Expand all groups"].enumerated() {
-            groupingPicker.addItem(withTitle: title)
-            let item = groupingPicker.lastItem!
-            item.tag = tag; item.target = self; item.action = #selector(groupingChanged(_:))
-        }
-        updateGroupingPicker()
-        groupingPicker.toolTip = "Group linear histories into blocks of up to 20 commits; expand each group individually."
-        let tools = NSStackView(views: [historyLabel, branches, groupingPicker, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        groupingToggle.target = self; groupingToggle.action = #selector(groupingChanged(_:))
+        updateGroupingToggle()
+        groupingToggle.toolTip = "Cocher pour tout plier ; décocher pour tout déplier. Chaque groupe reste ouvrable séparément."
+        let tools = NSStackView(views: [historyLabel, branches, groupingToggle, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
         tools.heightAnchor.constraint(equalToConstant: 40).isActive = true
         tools.distribution = .fill; search.setContentHuggingPriority(.defaultLow, for: .horizontal)
         outer.addArrangedSubview(tools)

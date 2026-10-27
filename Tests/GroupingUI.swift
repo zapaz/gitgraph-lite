@@ -10,14 +10,15 @@ func checkGroupingControls() {
     controller.timer?.invalidate()
     controller.commits = (0..<55).map { Commit(id: "commit\($0)", parents: $0 == 54 ? [] : ["commit\($0+1)"], subject: "Change \($0)") }
     controller.graph = GraphLayout.make(controller.commits)
-    controller.groupingEnabled = true
+    controller.groupsFolded = true
     controller.applySearch(selected: [])
     let group = controller.historyGroups[0]
     let collapsedCount = controller.visibleIndices.count
     let originalGroups = controller.historyGroups
-    func command(_ tag: Int) {
-        let item = controller.groupingPicker.itemArray.dropFirst().first { $0.tag == tag }!
-        precondition(NSApp.sendAction(item.action!, to: item.target, from: item))
+    func fold(_ folded: Bool) {
+        controller.groupingToggle.state = folded ? .on : .off
+        precondition(NSApp.sendAction(controller.groupingToggle.action!, to: controller.groupingToggle.target, from: controller.groupingToggle))
+        precondition(controller.groupingToggle.title == (folded ? "Plié" : "Déplié"))
     }
     func selectInsideGroup(_ index: Int) {
         let id = controller.commits[index].id
@@ -27,10 +28,10 @@ func checkGroupingControls() {
         precondition(controller.table.selectedRowIndexes.contains(row))
     }
     for _ in 0..<2 {
-        command(2)
+        fold(false)
         precondition(controller.visibleIndices.count == controller.commits.count + originalGroups.count)
         selectInsideGroup(group.indices.lowerBound) // Previously selected a synthetic header too.
-        command(1)
+        fold(true)
         precondition(controller.visibleIndices.count == collapsedCount)
         precondition(controller.table.selectedRowIndexes.isEmpty, "Hidden selections must not select group headers")
         let button = controller.groupView(group) as! CallbackButton
@@ -41,9 +42,12 @@ func checkGroupingControls() {
         precondition(controller.visibleIndices.count == collapsedCount, "A group must collapse after selecting an interior commit")
         precondition(controller.historyGroups == originalGroups)
     }
-    command(0)
-    precondition(controller.visibleIndices.count == controller.commits.count)
-    command(1)
+    fold(false)
+    (controller.groupView(group) as! CallbackButton).callback?()
+    precondition(controller.visibleIndices.count == controller.commits.count + originalGroups.count - group.indices.count)
+    (controller.groupView(group) as! CallbackButton).callback?()
+    precondition(controller.visibleIndices.count == controller.commits.count + originalGroups.count)
+    fold(true)
     precondition(controller.visibleIndices.count == collapsedCount)
     controller.search.stringValue = "Change"
     controller.applySearch(selected: [])
@@ -52,6 +56,6 @@ func checkGroupingControls() {
     controller.applySearch(selected: [])
     precondition(controller.visibleIndices.count == collapsedCount)
     controller.window?.close()
-    print("PASS: real AppKit grouping commands, repeated global collapse, individual collapse after commit selection, stable IDs, hidden selections and search restoration")
+    print("PASS: two-state fold checkbox, repeated fold/unfold, per-group exceptions in both states, stable groups after selection and search restoration")
 }
 checkGroupingControls()
