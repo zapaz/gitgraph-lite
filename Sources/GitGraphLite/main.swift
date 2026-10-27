@@ -16,7 +16,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     let branchPopover = NSPopover()
     var branchPins = Set<String>()
     var branchSelection: Set<String>?
-    let groupingPicker = NSPopUpButton()
+    let groupingPicker = NSPopUpButton(frame: .zero, pullsDown: true)
     var groupingEnabled = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
     var expandedGroups = Set<String>()
     var historyGroups: [HistoryGroup] = []
@@ -111,8 +111,13 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         search.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
         let hint = NSTextField(labelWithString: "⌘-click two commits to compare"); hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         let historyLabel = NSTextField(labelWithString: "HISTORY"); historyLabel.font = .systemFont(ofSize: 10, weight: .semibold); historyLabel.textColor = .secondaryLabelColor
-        groupingPicker.addItems(withTitles: ["Grouping off", "Collapse all groups", "Expand all groups"])
-        groupingPicker.selectItem(at: groupingEnabled ? 1 : 0); groupingPicker.target = self; groupingPicker.action = #selector(groupingChanged)
+        groupingPicker.addItem(withTitle: "Groups")
+        for (tag, title) in ["Grouping off", "Collapse all groups", "Expand all groups"].enumerated() {
+            groupingPicker.addItem(withTitle: title)
+            let item = groupingPicker.lastItem!
+            item.tag = tag; item.target = self; item.action = #selector(groupingChanged(_:))
+        }
+        updateGroupingPicker()
         groupingPicker.toolTip = "Group linear histories into blocks of up to 20 commits; expand each group individually."
         let tools = NSStackView(views: [historyLabel, branches, groupingPicker, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
         tools.heightAnchor.constraint(equalToConstant: 40).isActive = true
@@ -280,10 +285,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             let c = commits[i]
             return query.isEmpty || "\(c.subject) \(c.author) \(c.id) \(c.decorations)".lowercased().contains(query)
         }
-        rebuildHistoryRows(matching: matching, selected: selected)
+        rebuildHistoryRows(matching: matching)
         rebuilding = true
         table.reloadData()
-        let rows = IndexSet(visibleIndices.indices.filter { selected.contains(commits[visibleIndices[$0]].id) })
+        let rows = IndexSet(visibleIndices.indices.filter { groupHeaders[$0] == nil && selected.contains(commits[visibleIndices[$0]].id) })
         table.selectRowIndexes(rows, byExtendingSelection: false)
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"

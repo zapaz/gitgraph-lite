@@ -29,7 +29,7 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 - The HISTORY picker supports multiple branches. A branch name includes its local and origin references, even when their tips diverge. Filtering never checks out a branch.
 - `main` and `master`, when present, are always pinned and included in filtered history. Star other branches to keep them visible too. Pins persist per repository and are shared between its worktrees. Pinning controls history visibility, not Git write permissions.
 - Each branch shows its local/remote versions and associated worktree, with **Open worktree** or one-click **Create worktree**. Remote-only origin branches create a same-named tracking local branch in a new worktree; the active folder is preserved.
-- Linear history is grouped into blocks of 5–20 commits by default. Expand/collapse individual groups or use the top-level grouping menu. Branch/tag tips, worktree HEADs, merge commits, junctions and lane transitions remain visible. Searching temporarily shows individual commits.
+- Linear history is grouped into blocks of 5–20 commits by default. Group boundaries stay stable when selecting commits, and hidden selections are cleared when collapsing. The Groups menu reports Collapsed/Expanded/Mixed/Off and its commands can be repeated. Expand/collapse individual groups or use the top-level grouping menu. Branch/tag tips, worktree HEADs, merge commits, junctions and lane transitions remain visible. Searching temporarily shows individual commits.
 - The context menu shows pinned actions first and puts all other actions under **Plus…**. Use **Plus… → Pin Actions…** to choose visible actions. Preferences persist across launches. Continue/Abort remain directly available during conflict recovery.
 - Changed files default to a collapsible **Tree** view; **Paths** restores the full-path list. File mode persists across launches.
 - Commit hashes use ten characters and stronger monospace text; date and author use smaller secondary text.
@@ -131,3 +131,5 @@ The application icon is in `Assets/` and is bundled for Finder and the Dock. Its
 - Navigation checks use local disposable remotes to verify `origin/main` → local `main` in the same folder, tracking, preservation of existing local commits, nested branch/remote names, dirty/occupied/stale guards, automatic worktree names/paths and collision handling, reuse, and checkout into an unborn local branch.
 - Live app checks confirm commit/file/diff display, two-commit comparison, search filtering, and automatic appearance of an externally created tag.
 - The window layout was checked visually. Large-repository performance and public distribution have not been validated.
+
+AppKit grouping regression checks (after building, with a macOS desktop session): `zsh Tests/check-grouping-ui.sh`. These exercise global and per-group collapse after selecting interior commits, repeated commands, hidden selections and search restoration.

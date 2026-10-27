@@ -2,21 +2,30 @@ import AppKit
 import GitGraphCore
 
 extension Controller {
-    @objc func groupingChanged() {
-        let index = groupingPicker.indexOfSelectedItem
-        if index == 0 { groupingEnabled = false }
-        else {
-            groupingEnabled = true
-            if index == 1 { expandedGroups.removeAll() }
-            else { expandedGroups = Set(historyGroups.map(\.id)) }
+    @objc func groupingChanged(_ sender: NSMenuItem) {
+        let selected = table.selectedRowIndexes.compactMap { commit(at: $0)?.id }
+        switch sender.tag {
+        case 0: groupingEnabled = false
+        case 1: groupingEnabled = true; expandedGroups.removeAll()
+        default: groupingEnabled = true; expandedGroups = Set(historyGroups.map(\.id))
         }
         UserDefaults.standard.set(groupingEnabled, forKey: "groupCommits")
-        applySearch(selected: table.selectedRowIndexes.compactMap { commit(at: $0)?.id })
+        applySearch(selected: selected)
     }
-    func rebuildHistoryRows(matching: [Int], selected: [String]) {
+    func updateGroupingPicker() {
+        let ids = Set(historyGroups.map(\.id))
+        let expanded = expandedGroups.intersection(ids)
+        let title = !groupingEnabled ? "Groups: Off" : expanded.isEmpty ? "Groups: Collapsed" : expanded == ids ? "Groups: Expanded" : "Groups: Mixed"
+        groupingPicker.item(at: 0)?.title = title
+        for item in groupingPicker.itemArray.dropFirst() {
+            item.state = (!groupingEnabled && item.tag == 0) || (groupingEnabled && expanded.isEmpty && item.tag == 1) || (groupingEnabled && !ids.isEmpty && expanded == ids && item.tag == 2) ? .on : .off
+        }
+    }
+    func rebuildHistoryRows(matching: [Int]) {
         groupHeaders.removeAll()
-        let protected = Set((repository?.references.map(\.target) ?? []) + (repository?.worktrees.map(\.head) ?? []) + selected)
+        let protected = Set((repository?.references.map(\.target) ?? []) + (repository?.worktrees.map(\.head) ?? []))
         historyGroups = HistoryGroup.make(commits, graph: graph, protected: protected)
+        updateGroupingPicker()
         guard groupingEnabled, search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { visibleIndices = matching; return }
         let starts = Dictionary(uniqueKeysWithValues: historyGroups.map { ($0.indices.lowerBound, $0) })
         visibleIndices = []; var i = 0
