@@ -144,11 +144,14 @@ final class CommitCell: NSTableCellView {
                 left += 26; break
             }
         }
-        // Worktree occupancy stays visible without consuming several long branch-name badges.
-        if !worktrees.isEmpty && right-left > 170 {
-            let width: CGFloat = worktrees.count == 1 ? 23 : 37
-            badge(worktrees.count == 1 ? "" : String(worktrees.count), icon: "square.stack.3d.up", color: .systemBlue, x: left, width: width+5)
-            left += width+10
+        // Always label occupancy: an icon-only badge left an empty outlined compartment.
+        if !worktrees.isEmpty {
+            let text = worktrees.count == 1 ? "Worktree" : "\(worktrees.count) worktrees"
+            let width = badgeWidth(text)
+            if right-left > width+130 {
+                badge(text, icon: "square.stack.3d.up", color: .systemBlue, x: left, width: width)
+                left += width+5
+            }
         }
         let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
         let selected = backgroundStyle == .emphasized
