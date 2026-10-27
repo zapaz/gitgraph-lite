@@ -41,10 +41,15 @@ func checkGroupingControls() {
         let column = controller.table.tableColumns.first { $0.identifier.rawValue == "subject" }!
         let cell = controller.tableView(controller.table, viewFor: column, row: 0) as! CommitCell
         precondition(cell.foldSuffix == " (54 commits pliés)")
+        let graphColumn = controller.table.tableColumns.first { $0.identifier.rawValue == "graph" }!
+        let foldedGraph = controller.tableView(controller.table, viewFor: graphColumn, row: 0) as! GraphCell
+        precondition(foldedGraph.isFolded, "A folded tail, including a root tail, gets a zigzag")
         precondition(controller.historyGroups == originalGroups)
         fold(false)
         let unfoldedCell = controller.tableView(controller.table, viewFor: column, row: 0) as! CommitCell
         precondition(unfoldedCell.foldSuffix.isEmpty, "The count disappears entirely when unfolded")
+        let unfoldedGraph = controller.tableView(controller.table, viewFor: graphColumn, row: 0) as! GraphCell
+        precondition(!unfoldedGraph.isFolded, "The zigzag disappears when unfolded")
         selectInsideGroup(group.indices[2])
         fold(true)
         precondition(controller.visibleIndices.count == collapsedCount)

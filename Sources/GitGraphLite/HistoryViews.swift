@@ -16,6 +16,7 @@ final class GraphCell: NSView {
     var row: GraphRow?
     var filtered = false
     var isHead = false
+    var isFolded = false
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         guard let row else { return }
@@ -27,12 +28,22 @@ final class GraphCell: NSView {
             for edge in row.edges {
                 let top: CGFloat = edge.segment == 2 ? mid : 0
                 let bottom: CGFloat = edge.segment == 1 ? mid : bounds.height
-                let path = NSBezierPath(); path.move(to: NSPoint(x: x(edge.from), y: top))
-                path.curve(to: NSPoint(x: x(edge.to), y: bottom), controlPoint1: NSPoint(x: x(edge.from), y: top + (bottom-top)*0.6), controlPoint2: NSPoint(x: x(edge.to), y: bottom - (bottom-top)*0.6))
+                let path: NSBezierPath
+                if isFolded && edge.segment == 2 && edge.from == row.lane {
+                    path = foldedLine(from: NSPoint(x: x(edge.from), y: top), to: NSPoint(x: x(edge.to), y: bottom))
+                } else {
+                    path = NSBezierPath(); path.move(to: NSPoint(x: x(edge.from), y: top))
+                    path.curve(to: NSPoint(x: x(edge.to), y: bottom), controlPoint1: NSPoint(x: x(edge.from), y: top + (bottom-top)*0.6), controlPoint2: NSPoint(x: x(edge.to), y: bottom - (bottom-top)*0.6))
+                }
                 palette[edge.color % palette.count].setStroke(); path.lineWidth = 1.5; path.stroke()
             }
         }
         let position = x(filtered ? 0 : row.lane), color = palette[row.color % palette.count]
+        // A folded chain ending at the root has no outgoing layout edge, but its hidden tail still needs the marker.
+        if isFolded && !filtered && !row.edges.contains(where: { $0.segment == 2 && $0.from == row.lane }) {
+            let path = foldedLine(from: NSPoint(x: position, y: mid), to: NSPoint(x: position, y: bounds.height))
+            color.setStroke(); path.lineWidth = 1.5; path.stroke()
+        }
         if isHead {
             let ring = NSBezierPath(ovalIn: NSRect(x: position-5, y: mid-5, width: 10, height: 10))
             NSColor.textBackgroundColor.setFill(); ring.fill(); color.setStroke(); ring.lineWidth = 1.6; ring.stroke()
@@ -41,6 +52,16 @@ final class GraphCell: NSView {
         color.setFill(); dot.fill()
         NSColor.textBackgroundColor.setStroke(); dot.lineWidth = 0.7; dot.stroke()
     }
+    private func foldedLine(from start: NSPoint, to end: NSPoint) -> NSBezierPath {
+        let path = NSBezierPath(); path.lineJoinStyle = .round; path.lineCapStyle = .round
+        path.move(to: start)
+        // Keep both endpoints fixed: the zigzag is part of the branch line, not an overlaid icon.
+        for (fraction, offset): (CGFloat, CGFloat) in [(0.25, 0), (0.40, -3), (0.65, 3), (0.80, 0), (1, 0)] {
+            path.line(to: NSPoint(x: start.x + (end.x-start.x)*fraction + offset, y: start.y + (end.y-start.y)*fraction))
+        }
+        return path
+    }
+
 }
 
 final class CommitCell: NSTableCellView {

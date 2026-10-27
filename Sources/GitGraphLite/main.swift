@@ -296,6 +296,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         case "graph":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell()
             cell.identifier = id; cell.row = visibleGraph[row]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            cell.isFolded = groupHeaders[row] != nil
             cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
             cell.needsDisplay = true; return cell
         case "subject":
