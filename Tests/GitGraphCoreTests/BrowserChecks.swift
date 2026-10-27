@@ -50,14 +50,14 @@ func checkHistoryGrouping() {
     XCTAssertTrue(!groups.isEmpty)
     let hidden = Set(groups.flatMap { Array($0.indices) })
     XCTAssertTrue(!hidden.contains(0) && !hidden.contains(24) && !hidden.contains(47))
-    XCTAssertTrue(groups.allSatisfy { $0.indices.count >= 5 && $0.indices.count <= 20 })
+    XCTAssertTrue(groups.allSatisfy { $0.indices.count >= 3 && $0.indices.count <= 20 })
     let branching = [Commit(id: "merge", parents: ["c0", "side"])] + commits + [Commit(id: "side", parents: ["c30"])]
     let junctionGroups = HistoryGroup.make(branching, graph: GraphLayout.make(branching), protected: [])
     for group in junctionGroups {
-        let ids = branching[group.indices].map(\.id)
+        let ids = group.indices.map { branching[$0].id }
         XCTAssertTrue(!ids.contains("merge") && !ids.contains("c30"))
     }
-    XCTAssertTrue(HistoryGroup.make(Array(commits.prefix(4)), graph: GraphLayout.make(Array(commits.prefix(4))), protected: []).isEmpty)
+    XCTAssertTrue(HistoryGroup.make(Array(commits.prefix(3)), graph: GraphLayout.make(Array(commits.prefix(3))), protected: []).isEmpty)
     print("PASS: bounded linear history groups preserve refs, merge commits, fork points, root and short histories")
 }
 
@@ -72,4 +72,36 @@ func checkFileTree() {
     XCTAssertEqual(FileTreeRow.make(files, tree: false).map(\.fileIndex), [0, 1, 2, 3])
     XCTAssertTrue(FileTreeRow.make([], tree: true).isEmpty)
     print("PASS: file tree ordering, nesting, folder collapse, Unicode paths and original diff indices in both modes")
+}
+
+func checkInterleavedHistoryGroups() {
+    var commits = [Commit(id: "merge", parents: ["a0", "b0"])]
+    for i in 0..<12 {
+        commits.append(Commit(id: "a\(i)", parents: [i == 11 ? "root" : "a\(i+1)"]))
+        commits.append(Commit(id: "b\(i)", parents: [i == 11 ? "root" : "b\(i+1)"]))
+    }
+    commits.append(Commit(id: "root", parents: []))
+    let protected: Set<String> = ["merge", "a0", "b0", "a5", "root"]
+    let groups = HistoryGroup.make(commits, graph: GraphLayout.make(commits), protected: protected)
+    XCTAssertEqual(groups.count, 3)
+    XCTAssertTrue(groups.allSatisfy { zip($0.indices, $0.indices.dropFirst()).allSatisfy { $1-$0 == 2 } })
+    let folded = HistoryProjection.make(commits, groups: groups, expanded: [])
+    XCTAssertTrue(folded.commits.count < commits.count/2)
+    let foldedIDs = Set(folded.commits.map(\.id))
+    XCTAssertTrue(protected.isSubset(of: foldedIDs))
+    let hidden = Set(groups.flatMap { $0.indices.map { commits[$0].id } })
+    XCTAssertTrue(folded.commits.allSatisfy { !hidden.contains($0.id) && $0.parents.allSatisfy { foldedIDs.contains($0) } })
+    let positions = Dictionary(uniqueKeysWithValues: folded.commits.enumerated().map { ($0.element.id, $0.offset) })
+    for (i, commit) in folded.commits.enumerated() { XCTAssertTrue(commit.parents.allSatisfy { positions[$0]! > i }) }
+    XCTAssertEqual(folded.graph.count, folded.indices.count)
+    let expanded = HistoryProjection.make(commits, groups: groups, expanded: Set(groups.map(\.id)))
+    XCTAssertEqual(expanded.commits.count, commits.count + groups.count)
+    let nodes = Dictionary(uniqueKeysWithValues: expanded.commits.map { ($0.id, $0) })
+    func realParent(_ id: String) -> String {
+        id.hasPrefix("gitgraph-group:") ? realParent(nodes[id]!.parents[0]) : id
+    }
+    for commit in commits { XCTAssertEqual(nodes[commit.id]!.parents.map(realParent), commit.parents) }
+    let one = HistoryProjection.make(commits, groups: groups, expanded: [groups[0].id])
+    XCTAssertEqual(one.commits.count, folded.commits.count + groups[0].indices.count)
+    print("PASS: interleaved branch histories fold independently, refs/merges stay visible, projected graph has no hidden parents or broken topology, partial/full expansion restores ancestry")
 }

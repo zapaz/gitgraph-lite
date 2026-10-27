@@ -26,6 +26,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var repository: Repository?
     var commits: [Commit] = []
     var graph: [GraphRow] = []
+    var visibleGraph: [GraphRow] = []
     var labelsByCommit: [String: [ReferenceLabel]] = [:]
     var activeHead: String?
     var visibleIndices: [Int] = []
@@ -265,6 +266,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         table.selectRowIndexes(rows, byExtendingSelection: false)
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"
+        if query.isEmpty {
+            let folded = historyGroups.filter { !isGroupExpanded($0.id) }
+            if !folded.isEmpty { footer.stringValue += " · \(folded.count) groupes repliés (\(folded.reduce(0) { $0 + $1.indices.count }) commits)" }
+        }
         more.isHidden = commits.count < limit
         if let operation = repository?.pendingOperation { footer.stringValue += " · \(operation) in progress — right-click for Continue / Abort" }
         if rows.isEmpty { clearDetails() } else { loadDetails() }
@@ -285,7 +290,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         if let group = groupHeaders[row] {
             if id.rawValue == "subject" { return groupView(group) }
             if id.rawValue == "graph" {
-                let cell = GraphCell(); cell.row = graph[group.indices.lowerBound]; cell.isGroup = true; return cell
+                let cell = GraphCell(); cell.row = visibleGraph[row]; cell.isGroup = true; return cell
             }
             return NSTextField(labelWithString: "")
         }
@@ -293,13 +298,13 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         switch id.rawValue {
         case "graph":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell()
-            cell.identifier = id; cell.row = graph[visibleIndices[row]]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            cell.identifier = id; cell.row = visibleGraph[row]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             cell.isGroup = false; cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
             cell.needsDisplay = true; return cell
         case "subject":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CommitCell) ?? CommitCell()
             cell.identifier = id
-            cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: graph[visibleIndices[row]].color, isHead: c.id == activeHead)
+            cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: visibleGraph[row].color, isHead: c.id == activeHead)
             return cell
         default:
             let label = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")

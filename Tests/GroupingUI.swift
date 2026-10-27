@@ -30,14 +30,14 @@ func checkGroupingControls() {
     for _ in 0..<2 {
         fold(false)
         precondition(controller.visibleIndices.count == controller.commits.count + originalGroups.count)
-        selectInsideGroup(group.indices.lowerBound) // Previously selected a synthetic header too.
+        selectInsideGroup(group.indices[0]) // Previously selected a synthetic header too.
         fold(true)
         precondition(controller.visibleIndices.count == collapsedCount)
         precondition(controller.table.selectedRowIndexes.isEmpty, "Hidden selections must not select group headers")
         let button = controller.groupView(group) as! CallbackButton
         button.callback?()
         precondition(controller.visibleIndices.count == collapsedCount + group.indices.count)
-        selectInsideGroup(group.indices.lowerBound+2)
+        selectInsideGroup(group.indices[2])
         (controller.groupView(group) as! CallbackButton).callback?()
         precondition(controller.visibleIndices.count == collapsedCount, "A group must collapse after selecting an interior commit")
         precondition(controller.historyGroups == originalGroups)
