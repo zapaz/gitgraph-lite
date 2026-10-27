@@ -4,6 +4,14 @@
 
 A small native macOS Git history browser, inspired by the compact workflow of VS Code's Git Graph. This is an independent implementation, with no extension source code or assets reused.
 
+## Download
+
+**[Latest release](https://github.com/zapaz/gitgraph-lite/releases/latest)** · [Download 0.8.6 for Apple Silicon](https://github.com/zapaz/gitgraph-lite/releases/download/v0.8.6/GitGraph-Lite-0.8.6-macOS-arm64.zip) · [All releases](https://github.com/zapaz/gitgraph-lite/releases)
+
+Requires macOS 13 or later and Apple Silicon (M1 or newer). Unzip and drag **GitGraph Lite.app** into **Applications**. Each release includes a ZIP, the MIT license notice and a SHA-256 checksum file. The app is not notarized by Apple.
+
+Historical downloads cover **0.1.0 through 0.8.6**. Version 0.2.0 is a preserved binary-only release: its tag contains archival metadata because the exact intermediate source snapshot was not retained.
+
 ## Run
 
 Open the prebuilt **GitGraph Lite.app**, or build it from source with the commands below. Then choose **Open Repository…** (⌘O).
