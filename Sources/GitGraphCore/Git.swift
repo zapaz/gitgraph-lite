@@ -57,7 +57,11 @@ public enum Git {
         p.environment = env
         p.standardInput = FileHandle.nullDevice
         p.standardOutput = stdout; p.standardError = stderr
-        try p.run(); p.waitUntilExit()
+        // waitUntilExit() pumps a run loop in polling intervals on macOS. Wake directly
+        // when the child exits, including short Git metadata commands.
+        let exited = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in exited.signal() }
+        try p.run(); exited.wait()
         guard p.terminationStatus == 0 else {
             let detail = (try? String(contentsOf: err, encoding: .utf8)) ?? "Git command failed."
             throw GitError(message: detail.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -107,17 +111,37 @@ public enum Git {
         let branches = try string(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], at: path).split(separator: "\n").map(String.init)
         let hasHead = (try? string(["rev-parse", "--verify", "HEAD"], at: path)) != nil
         let trees = try worktrees(at: path)
-        var args = ["log", "--date-order", "-z", "--format=%H%x00%P%x00%an%x00%ct%x00%D%x00%s", "--max-count=\(limit)"]
-        if let filters { args += filters.filter { branches.contains($0) } } else {
-            args += ["--all"]; if hasHead { args += ["HEAD"] }
-            args += trees.map(\.head).filter { !$0.isEmpty && $0.contains(where: { $0 != "0" }) }
-        }
-        args += ["--"]
-        let validFilters = filters.map { $0.filter { branches.contains($0) } }
-        let commits = (hasHead || !branches.isEmpty) && validFilters?.isEmpty != true ? try parseLog(run(args, at: path)) : []
+        let commits = try history(at: path, branches: branches, filters: filters, worktrees: trees, hasHead: hasHead, limit: limit)
         let refs = try references(at: path)
         let remotes = try string(["remote"], at: path).split(separator: "\n").map(String.init)
         return Repository(path: path, branch: branch, branches: branches, commits: commits, branchGroups: BranchGroup.make(refs, remotes: remotes), signature: try signature(at: path), references: refs, pendingOperation: try pendingOperation(at: path), worktrees: trees)
+    }
+
+    // Reuse the last metadata snapshot only while its refs/HEAD/operation signature
+    // still matches and worktree registration is unchanged. External changes fall
+    // back to a complete fresh load; file statuses keep the normal refresh cadence.
+    public static func loadHistory(in repository: Repository, branchNames: Set<String>?, pins: Set<String>, limit: Int) throws -> Repository {
+        guard try signature(at: repository.path) == repository.signature,
+              try worktreeRegistration(parseWorktrees(worktreeMetadata(at: repository.path))) == worktreeRegistration(repository.worktrees) else {
+            return try load(at: repository.path, branchNames: branchNames, pins: pins, limit: limit)
+        }
+        let filters = BranchGroup.historyReferences(repository.branchGroups, selection: branchNames, pins: pins)
+        let head = repository.worktrees.first { samePath($0.path, repository.path) }?.head ?? ""
+        let hasHead = !head.isEmpty && head.contains { $0 != "0" }
+        let commits = try history(at: repository.path, branches: repository.branches, filters: filters, worktrees: repository.worktrees, hasHead: hasHead, limit: limit)
+        return Repository(path: repository.path, branch: repository.branch, branches: repository.branches, commits: commits, branchGroups: repository.branchGroups, signature: repository.signature, references: repository.references, pendingOperation: repository.pendingOperation, worktrees: repository.worktrees)
+    }
+    private static func history(at path: String, branches: [String], filters: [String]?, worktrees: [GitWorktree], hasHead: Bool, limit: Int) throws -> [Commit] {
+        let branchSet = Set(branches)
+        let validFilters = filters.map { $0.filter { branchSet.contains($0) } }
+        guard (hasHead || !branches.isEmpty), validFilters?.isEmpty != true else { return [] }
+        var args = ["log", "--date-order", "-z", "--format=%H%x00%P%x00%an%x00%ct%x00%D%x00%s", "--max-count=\(limit)"]
+        if let validFilters { args += validFilters } else {
+            args += ["--all"]; if hasHead { args.append("HEAD") }
+            args += worktrees.map(\.head).filter { !$0.isEmpty && $0.contains(where: { $0 != "0" }) }
+        }
+        args.append("--")
+        return try parseLog(run(args, at: path))
     }
 
     public static func message(at path: String, commit: String) throws -> String {

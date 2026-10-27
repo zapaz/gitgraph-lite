@@ -101,3 +101,6 @@ try checkBranchBrowser()
 checkHistoryGrouping()
 checkFileTree()
 checkInterleavedHistoryGroups()
+
+checkSearchIndex()
+try checkHistorySnapshotReload()

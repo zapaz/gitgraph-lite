@@ -190,3 +190,47 @@ func checkGroupingControls() {
     print("PASS: permanent plus/minus and counters fold both ways under either global default; merges, terminal commits, search, selection and single-commit exclusions stay correct")
 }
 checkGroupingControls()
+
+func checkHistoryCacheInvalidation() {
+    _ = NSApplication.shared
+    let controller = Controller(); controller.timer?.invalidate(); controller.groupsFolded = true
+    func install(_ prefix: String) {
+        controller.commits = (0..<8).map { Commit(id: "\(prefix)\($0)", parents: $0 == 7 ? [] : ["\(prefix)\($0+1)"], author: "Élodie", subject: "\(prefix) change \($0)") }
+        controller.graph = GraphLayout.make(controller.commits)
+        controller.search.stringValue = ""; controller.applySearch(selected: [])
+    }
+    install("alpha")
+    precondition(controller.visibleIndices.count == 1)
+    controller.search.stringValue = "ALPHA"; controller.applySearch(selected: [])
+    precondition(controller.visibleIndices.count == 8)
+    controller.search.stringValue = ""; controller.applySearch(selected: [])
+    precondition(controller.groupHeaders[0]?.id == "alpha0" && controller.visibleIndices.count == 1)
+    install("beta")
+    controller.search.stringValue = "alpha"; controller.applySearch(selected: [])
+    precondition(controller.visibleIndices.isEmpty, "A same-sized history replacement must invalidate its search index")
+    controller.search.stringValue = "BETA"; controller.applySearch(selected: [])
+    precondition(controller.visibleIndices.count == 8)
+    controller.search.stringValue = "beta change 1"; controller.applySearch(selected: ["beta1"])
+    precondition(controller.table.numberOfRows == 1 && controller.commit(at: 0)?.id == "beta1")
+    precondition(controller.table.selectedRowIndexes == IndexSet(integer: 0))
+    controller.search.stringValue = "beta change"; controller.applySearch(selected: ["beta1"])
+    precondition(controller.table.numberOfRows == 8 && controller.table.selectedRowIndexes == IndexSet(integer: 1))
+    controller.search.stringValue = ""; controller.applySearch(selected: [])
+    precondition(controller.groupHeaders[0]?.id == "beta0", "A cached folded graph must never retain the previous history")
+    controller.unfoldGroup("beta0")
+    precondition(controller.visibleIndices.count == 8)
+    controller.foldGroup("beta0")
+    precondition(controller.visibleIndices.count == 1 && controller.commit(at: 0)?.id == "beta0")
+    // Once empty, filtering does not invalidate/rebuild the four detail tables again.
+    controller.clearDetails(); let emptyDetailID = controller.detailID
+    controller.search.stringValue = "missing"; controller.applySearch(selected: [])
+    controller.search.stringValue = "still missing"; controller.applySearch(selected: [])
+    precondition(controller.detailID == emptyDetailID)
+    // A real pending/visible selection is still cleared and its callback invalidated.
+    controller.target = "beta0"; let pendingID = controller.detailID
+    controller.clearDetails()
+    precondition(controller.target == nil && controller.detailID != pendingID)
+    controller.window?.close()
+    print("PASS: search/group/projection caches invalidate after replacing history; folding, search restoration and detail cancellation remain correct")
+}
+checkHistoryCacheInvalidation()

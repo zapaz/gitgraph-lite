@@ -6,11 +6,11 @@ A small native macOS Git history browser, inspired by the compact workflow of VS
 
 ## Download
 
-**[Latest release](https://github.com/zapaz/gitgraph-lite/releases/latest)** · [Download 0.10.6 for Apple Silicon](https://github.com/zapaz/gitgraph-lite/releases/download/v0.10.6/GitGraph-Lite-0.10.6-macOS-arm64.zip) · [All releases](https://github.com/zapaz/gitgraph-lite/releases)
+**[Latest release](https://github.com/zapaz/gitgraph-lite/releases/latest)** · [Download 0.10.7 for Apple Silicon](https://github.com/zapaz/gitgraph-lite/releases/download/v0.10.7/GitGraph-Lite-0.10.7-macOS-arm64.zip) · [All releases](https://github.com/zapaz/gitgraph-lite/releases)
 
 Requires macOS 13 or later and Apple Silicon (M1 or newer). Unzip and drag **GitGraph Lite.app** into **Applications**. Each release includes a ZIP, the MIT license notice and a SHA-256 checksum file. The app is not notarized by Apple.
 
-Historical downloads cover **0.1.0 through 0.10.6**. Version 0.2.0 is a preserved binary-only release: its tag contains archival metadata because the exact intermediate source snapshot was not retained.
+Historical downloads cover **0.1.0 through 0.10.7**. Version 0.2.0 is a preserved binary-only release: its tag contains archival metadata because the exact intermediate source snapshot was not retained.
 
 ## Run
 
@@ -131,6 +131,12 @@ open "dist/GitGraph Lite.app"
 The build script writes `dist/GitGraph Lite.app`. Intermediate files and caches go in `.build-local/`; both folders are ignored by Git. To use another location, set `GITGRAPH_BUILD_ROOT` for intermediate files or `GITGRAPH_APP_PATH` for the app bundle.
 
 The application icon is in `Assets/` and is bundled for Finder and the Dock. Its generation prompt is recorded in `Assets/icon-prompt.md`; regenerate its macOS sizes with `zsh make-icon.sh`.
+
+## Loading and filtering performance (0.10.7)
+
+On a fixed runbot snapshot with six worktrees, median full loading is **3.77× faster**, branch filtering **21.33× faster**, and repeated nine-query search sequences **2.18× faster** on 500 commits / **3.09× faster** on 2,529 commits than 0.10.6. See the [benchmark protocol and raw samples](docs/performance-0.10.7.md), including first-sequence timings and measurement limits.
+
+The app reuses metadata after fresh signature and worktree-registration checks for history-only filters, scans worktree statuses concurrently, prepares history off the main thread, caches search/group data and preserves surviving result rows. External ref/worktree changes invalidate the fast path; manual and automatic refresh continue updating worktree state. The UI and dedicated branch/worktree rules stay the same.
 
 ## Verified on the development Mac
 

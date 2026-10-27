@@ -19,11 +19,17 @@ final class GraphCell: NSView {
     var isFolded = false
     var foldAction: (() -> Void)? {
         didSet {
-            setAccessibilityElement(foldAction != nil && !filtered)
-            setAccessibilityRole(.button)
+            let enabled = foldAction != nil && !filtered
+            let lane = enabled ? row?.lane : nil
+            guard enabled != foldControlEnabled || lane != foldCursorLane else { return }
+            foldControlEnabled = enabled; foldCursorLane = lane
+            setAccessibilityElement(enabled)
+            if enabled { setAccessibilityRole(.button) }
             window?.invalidateCursorRects(for: self)
         }
     }
+    private var foldControlEnabled = false
+    private var foldCursorLane: Int?
     override var isFlipped: Bool { true }
     private var foldTarget: NSRect {
         guard let row else { return .zero }

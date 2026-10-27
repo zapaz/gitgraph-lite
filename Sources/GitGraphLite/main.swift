@@ -21,14 +21,25 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var expandedGroups = Set<String>()
     var collapsedGroups = Set<String>()
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
-    var historyGroups: [HistoryGroup] = []
+    var historyGroups: [HistoryGroup] = [] {
+        didSet {
+            let ids = Set(historyGroups.map(\.id))
+            expandedGroups.formIntersection(ids); collapsedGroups.formIntersection(ids)
+        }
+    }
     var groupHeaders: [Int: HistoryGroup] = [:]
     var groupControls: [Int: HistoryGroup] = [:]
     let spinner = NSProgressIndicator()
     let more = NSButton(title: "Load more", target: nil, action: nil)
-    var repository: Repository?
-    var commits: [Commit] = []
-    var graph: [GraphRow] = []
+    var repository: Repository? { didSet { historyGroupsDirty = true; cachedHistoryProjection = nil; historyRowsDirty = true } }
+    var commits: [Commit] = [] { didSet { historySearchIndex = nil; historySearchMatches.removeAll(keepingCapacity: true); historyGroupsDirty = true; cachedHistoryProjection = nil; historyRowsDirty = true } }
+    var graph: [GraphRow] = [] { didSet { historyGroupsDirty = true; cachedHistoryProjection = nil; historyRowsDirty = true } }
+    var historySearchIndex: HistorySearchIndex?
+    var historySearchMatches: [(query: String, indices: [Int])] = []
+    var historyGroupsDirty = true
+    var historyRowsDirty = true
+    var displayedSearchActive = false
+    var cachedHistoryProjection: (ids: Set<String>, projection: HistoryProjection)?
     var visibleGraph: [GraphRow] = []
     var labelsByCommit: [String: [ReferenceLabel]] = [:]
     var activeHead: String?
@@ -45,6 +56,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var loading = false, checking = false, rebuilding = false
     var operationRunning = false
     var comparisonAnchor: Commit?
+    var detailsRepositoryPath: String?
     var worktreeManager: WorktreeManager?
     var timer: Timer?
     let dateFormatter: DateFormatter = { let f = DateFormatter(); f.locale = .autoupdatingCurrent; f.timeZone = .autoupdatingCurrent; f.dateFormat = "d MMM yyyy HH:mm"; return f }()
@@ -193,21 +205,35 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         refresh(path: path, switching: true, focusHead: focusHead)
     }
     @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
-    @objc func loadMore() { limit += 500; refreshNow() }
-    func refresh(path: String, switching: Bool = false, focusHead: Bool = false) {
+    @objc func loadMore() {
+        guard !operationRunning, let repo = repository else { return }
+        limit += 500; refresh(path: repo.path, historyOnly: true)
+    }
+    func refresh(path: String, switching: Bool = false, focusHead: Bool = false, historyOnly: Bool = false) {
         let request = UUID(); loadID = request; loading = true; spinner.startAnimation(nil)
         let selection = branchSelection, pins = branchPins, count = limit
+        let snapshot = historyOnly ? repository : nil
         footer.stringValue = "Loading history…"
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try Git.load(at: path, branchNames: selection, pins: pins, limit: count) }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { () -> (Repository, [GraphRow], HistorySearchIndex, [HistoryGroup], [String: [ReferenceLabel]]) in
+                let repo = try snapshot.map { try Git.loadHistory(in: $0, branchNames: selection, pins: pins, limit: count) }
+                    ?? Git.load(at: path, branchNames: selection, pins: pins, limit: count)
+                let graph = GraphLayout.make(repo.commits)
+                let searchIndex = HistorySearchIndex(repo.commits)
+                let protected = Set(repo.references.map(\.target) + repo.worktrees.map(\.head))
+                let groups = HistoryGroup.make(repo.commits, graph: graph, protected: protected)
+                let labels = Dictionary(grouping: repo.references, by: \.target).mapValues { ReferenceLabel.make($0, currentBranch: repo.branch) }
+                return (repo, graph, searchIndex, groups, labels)
+            }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.loadID == request else { return }
                 self.loading = false; self.spinner.stopAnimation(nil)
                 switch result {
-                case .success(let repo):
+                case .success(let (repo, graph, searchIndex, groups, labels)):
                     let selected = switching ? [] : self.table.selectedRowIndexes.compactMap { self.commit(at: $0)?.id }
-                    self.repository = repo; self.commits = repo.commits; self.graph = GraphLayout.make(repo.commits)
-                    self.labelsByCommit = Dictionary(grouping: repo.references, by: \.target).mapValues { ReferenceLabel.make($0, currentBranch: repo.branch) }
+                    self.repository = repo; self.commits = repo.commits; self.graph = graph
+                    self.historySearchIndex = searchIndex; self.historyGroups = groups; self.historyGroupsDirty = false
+                    self.labelsByCommit = labels
                     self.activeHead = repo.worktrees.first { Git.samePath($0.path, repo.path) }?.head
                     if let column = self.table.tableColumns.first(where: { $0.identifier.rawValue == "graph" }) {
                         column.width = max(column.width, min(240, CGFloat(self.graph.map(\.width).max() ?? 1)*15+24))
@@ -258,14 +284,21 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func applySearch(selected: [String]) {
         let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let matching = commits.indices.filter { i in
-            let c = commits[i]
-            return query.isEmpty || "\(c.subject) \(c.author) \(c.id) \(c.decorations)".lowercased().contains(query)
+        let matching: [Int]
+        if query.isEmpty { matching = Array(commits.indices) }
+        else if let cached = historySearchMatches.last(where: { $0.query == query }) { matching = cached.indices }
+        else {
+            if historySearchIndex == nil { historySearchIndex = HistorySearchIndex(commits) }
+            matching = historySearchIndex!.matching(query)
+            historySearchMatches.append((query, matching))
+            if historySearchMatches.count > 16 { historySearchMatches.removeFirst() }
         }
+        let previousIndices = visibleIndices
         rebuildHistoryRows(matching: matching)
         rebuilding = true
-        table.reloadData()
-        let rows = IndexSet(visibleIndices.indices.filter { selected.contains(commits[visibleIndices[$0]].id) })
+        reloadHistoryTable(previous: previousIndices, searching: !query.isEmpty)
+        let selectedIDs = Set(selected)
+        let rows = IndexSet(visibleIndices.indices.filter { selectedIDs.contains(commits[visibleIndices[$0]].id) })
         table.selectRowIndexes(rows, byExtendingSelection: false)
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"
@@ -338,9 +371,13 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
 
     func clearDetails() {
-        detailID = UUID(); patchID = UUID(); target = nil; base = nil; files = []
+        let title = commits.isEmpty ? "No commits yet" : "Select a commit to inspect its changes"
+        // Typing after the selection is already empty must not rebuild all four
+        // file/diff tables again on every keystroke.
+        guard target != nil || base != nil || !files.isEmpty || !fileRows.isEmpty || !message.string.isEmpty || detailTitle.stringValue != title else { return }
+        detailID = UUID(); patchID = UUID(); target = nil; base = nil; files = []; detailsRepositoryPath = nil
         fileRows = []; fileTable.reloadData(); fileTitle.stringValue = "FILES"
-        detailTitle.stringValue = commits.isEmpty ? "No commits yet" : "Select a commit to inspect its changes"
+        detailTitle.stringValue = title
         message.string = ""; setDiff("")
     }
 
@@ -355,6 +392,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func showDetails(for first: Commit, base comparisonBase: String?) {
         guard let repo = repository else { return }
+        // Commit contents are immutable. Filtering/folding around a still-selected
+        // commit can keep its loaded details (or its in-flight request).
+        guard detailsRepositoryPath != repo.path || target != first.id || base != comparisonBase else { return }
+        detailsRepositoryPath = repo.path
         target = first.id; base = comparisonBase
         let base = self.base, request = UUID(); detailID = request; patchID = UUID()
         files = []; fileRows = []; fileTable.reloadData(); fileTitle.stringValue = "FILES"
@@ -373,7 +414,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     self.files = files; self.message.string = text; self.fileTitle.stringValue = "FILES · \(files.count)"
                     self.rebuildFileRows()
                     if files.isEmpty { self.setDiff("No file changes for this selection.") }
-                case .failure(let error): self.message.string = error.localizedDescription
+                case .failure(let error): self.detailsRepositoryPath = nil; self.message.string = error.localizedDescription
                 }
             }
         }

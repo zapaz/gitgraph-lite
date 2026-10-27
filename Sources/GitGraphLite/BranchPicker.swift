@@ -132,7 +132,9 @@ extension Controller {
         branchPopover.show(relativeTo: branches.bounds, of: branches, preferredEdge: .maxY)
     }
     func branchSelectionChanged() {
-        limit = 500; updateBranchButton(); (branchPopover.contentViewController as? BranchPicker)?.rebuild(); refreshNow()
+        guard !operationRunning, let repo = repository else { return }
+        limit = 500; updateBranchButton(); (branchPopover.contentViewController as? BranchPicker)?.rebuild()
+        refresh(path: repo.path, historyOnly: true)
     }
     func updateBranchButton() {
         guard let repo = repository else { return }

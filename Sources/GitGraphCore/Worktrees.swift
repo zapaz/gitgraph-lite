@@ -29,6 +29,13 @@ public struct GitWorktree {
     }
 }
 
+private final class WorktreeStatuses {
+    private let lock = NSLock()
+    private var values: [String: Data] = [:]
+    func store(_ data: Data, at path: String) { lock.lock(); defer { lock.unlock() }; values[path] = data }
+    func value(at path: String) -> Data? { lock.lock(); defer { lock.unlock() }; return values[path] }
+}
+
 public enum WorktreeSource {
     case newBranch(name: String, start: String)
     case existingBranch(String)
@@ -65,8 +72,25 @@ extension Git {
     }
 
     public static func worktrees(at path: String) throws -> [GitWorktree] {
-        let trees = try parseWorktrees(worktreeMetadata(at: path)).map { tree in
-            let status = tree.exists && !tree.isBare ? try? run(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], at: tree.path) : nil
+        try worktrees(at: path, retryAfterChange: true)
+    }
+    private static func worktrees(at path: String, retryAfterChange: Bool) throws -> [GitWorktree] {
+        let metadata = try worktreeMetadata(at: path)
+        let listed = parseWorktrees(metadata)
+        let statuses = WorktreeStatuses(), queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 4; queue.qualityOfService = .userInitiated
+        // Independent worktree indexes can be inspected together without serially
+        // waiting for every directory scan. Keep concurrency bounded on big repos.
+        for tree in listed where tree.exists && !tree.isBare {
+            queue.addOperation {
+                if let data = try? run(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], at: tree.path) {
+                    statuses.store(data, at: tree.path)
+                }
+            }
+        }
+        queue.waitUntilAllOperationsAreFinished()
+        let trees = listed.map { tree in
+            let status = statuses.value(at: tree.path)
             var count = 0
             if let status {
                 let records = status.split(separator: 0); var i = 0
@@ -77,7 +101,20 @@ extension Git {
             }
             return GitWorktree(path: tree.path, head: tree.head, branch: tree.branch, isMain: tree.isMain, isBare: tree.isBare, isLocked: tree.isLocked, lockReason: tree.lockReason, isPrunable: tree.isPrunable, pruneReason: tree.pruneReason, changedFiles: status == nil ? nil : count, exists: tree.exists)
         }
-        return try WorkspaceAssociations.annotate(trees, at: path)
+        do { return try WorkspaceAssociations.annotate(trees, at: path) }
+        catch {
+            // Another Git tool can remove a temporary worktree while its status is
+            // being scanned. Retry once only when the registration actually changed.
+            if retryAfterChange, let current = try? worktreeMetadata(at: path), current != metadata {
+                return try worktrees(at: path, retryAfterChange: false)
+            }
+            throw error
+        }
+    }
+    static func worktreeRegistration(_ worktrees: [GitWorktree]) -> [String] {
+        worktrees.map { tree in
+            [tree.path, tree.head, tree.branch ?? "", tree.isMain ? "main" : "linked", tree.isBare ? "bare" : "", tree.exists ? "exists" : "missing", tree.isLocked ? "locked" : "", tree.lockReason ?? "", tree.isPrunable ? "prunable" : "", tree.pruneReason ?? ""].joined(separator: "\0")
+        }
     }
     public static func worktreeSummary(_ worktrees: [GitWorktree]) -> String {
         worktrees.map { "\($0.path)\0\($0.head)\0\($0.branch ?? "")\0\($0.stateLabel)\0\($0.lockReason ?? "")\0\($0.assignedBranch ?? "")\0\($0.associationIssue ?? "")" }.joined(separator: "\n")

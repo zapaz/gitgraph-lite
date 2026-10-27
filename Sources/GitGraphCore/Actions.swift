@@ -38,10 +38,9 @@ extension Git {
     }
 
     public static func pendingOperation(at path: String) throws -> String? {
+        let directory = URL(fileURLWithPath: try string(["rev-parse", "--absolute-git-dir"], at: path), isDirectory: true)
         for (file, operation) in [("rebase-merge", "rebase"), ("rebase-apply", "rebase"), ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert"), ("MERGE_HEAD", "merge")] {
-            let location = try string(["rev-parse", "--git-path", file], at: path)
-            let resolved = location.hasPrefix("/") ? location : URL(fileURLWithPath: path).appendingPathComponent(location).path
-            if FileManager.default.fileExists(atPath: resolved) { return operation }
+            if FileManager.default.fileExists(atPath: directory.appendingPathComponent(file).path) { return operation }
         }
         return nil
     }
