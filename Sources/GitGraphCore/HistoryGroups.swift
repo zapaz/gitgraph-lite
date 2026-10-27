@@ -34,21 +34,18 @@ public struct HistoryProjection {
     public let commits: [Commit]
     public let graph: [GraphRow]
 
-    public static func make(_ commits: [Commit], groups: [HistoryGroup], expanded: Set<String>) -> HistoryProjection {
+    public static func make(_ commits: [Commit], groups: [HistoryGroup]) -> HistoryProjection {
         let starts = Dictionary(uniqueKeysWithValues: groups.map { ($0.indices[0], $0) })
         var replacements: [String: String] = [:], hidden = Set<Int>()
         for group in groups {
-            if expanded.contains(group.id) { replacements[commits[group.indices[0]].id] = group.nodeID }
-            else {
-                for i in group.indices { replacements[commits[i].id] = group.nodeID; hidden.insert(i) }
-            }
+            for i in group.indices { replacements[commits[i].id] = group.nodeID; hidden.insert(i) }
         }
         func resolve(_ id: String) -> String { replacements[id] ?? id }
         var indices: [Int] = [], headers: [Int: HistoryGroup] = [:], displayed: [Commit] = []
         for i in commits.indices {
             if let group = starts[i] {
                 headers[indices.count] = group; indices.append(i)
-                let parents = expanded.contains(group.id) ? [commits[i].id] : commits[group.indices.last!].parents.map(resolve)
+                let parents = commits[group.indices.last!].parents.map(resolve)
                 displayed.append(Commit(id: group.nodeID, parents: parents, date: commits[i].date, subject: "\(group.indices.count) commits"))
             }
             guard !hidden.contains(i) else { continue }

@@ -85,7 +85,7 @@ func checkInterleavedHistoryGroups() {
     let groups = HistoryGroup.make(commits, graph: GraphLayout.make(commits), protected: protected)
     XCTAssertEqual(groups.count, 3)
     XCTAssertTrue(groups.allSatisfy { zip($0.indices, $0.indices.dropFirst()).allSatisfy { $1-$0 == 2 } })
-    let folded = HistoryProjection.make(commits, groups: groups, expanded: [])
+    let folded = HistoryProjection.make(commits, groups: groups)
     XCTAssertTrue(folded.commits.count < commits.count/2)
     let foldedIDs = Set(folded.commits.map(\.id))
     XCTAssertTrue(protected.isSubset(of: foldedIDs))
@@ -94,14 +94,9 @@ func checkInterleavedHistoryGroups() {
     let positions = Dictionary(uniqueKeysWithValues: folded.commits.enumerated().map { ($0.element.id, $0.offset) })
     for (i, commit) in folded.commits.enumerated() { XCTAssertTrue(commit.parents.allSatisfy { positions[$0]! > i }) }
     XCTAssertEqual(folded.graph.count, folded.indices.count)
-    let expanded = HistoryProjection.make(commits, groups: groups, expanded: Set(groups.map(\.id)))
-    XCTAssertEqual(expanded.commits.count, commits.count + groups.count)
-    let nodes = Dictionary(uniqueKeysWithValues: expanded.commits.map { ($0.id, $0) })
-    func realParent(_ id: String) -> String {
-        id.hasPrefix("gitgraph-group:") ? realParent(nodes[id]!.parents[0]) : id
-    }
-    for commit in commits { XCTAssertEqual(nodes[commit.id]!.parents.map(realParent), commit.parents) }
-    let one = HistoryProjection.make(commits, groups: groups, expanded: [groups[0].id])
-    XCTAssertEqual(one.commits.count, folded.commits.count + groups[0].indices.count)
-    print("PASS: interleaved branch histories fold independently, refs/merges stay visible, projected graph has no hidden parents or broken topology, partial/full expansion restores ancestry")
+    let unfolded = HistoryProjection.make(commits, groups: [])
+    XCTAssertEqual(unfolded.commits, commits)
+    XCTAssertEqual(unfolded.indices, Array(commits.indices))
+    XCTAssertTrue(unfolded.headers.isEmpty)
+    print("PASS: interleaved branch histories fold independently, refs/merges stay visible, projected graph has no hidden parents or broken topology, unfolded history has exactly the original commits without synthetic rows")
 }

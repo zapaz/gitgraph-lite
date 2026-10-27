@@ -29,26 +29,20 @@ func checkGroupingControls() {
     }
     for _ in 0..<2 {
         fold(false)
-        precondition(controller.visibleIndices.count == controller.commits.count + originalGroups.count)
-        selectInsideGroup(group.indices[0]) // Previously selected a synthetic header too.
+        precondition(controller.visibleIndices == Array(controller.commits.indices))
+        precondition(controller.groupHeaders.isEmpty, "Unfolded history must have no synthetic headers")
+        precondition(controller.visibleGraph.count == controller.commits.count)
+        selectInsideGroup(group.indices[0])
         fold(true)
         precondition(controller.visibleIndices.count == collapsedCount)
         precondition(controller.table.selectedRowIndexes.isEmpty, "Hidden selections must not select group headers")
-        let button = controller.groupView(group) as! CallbackButton
-        button.callback?()
-        precondition(controller.visibleIndices.count == collapsedCount + group.indices.count)
-        selectInsideGroup(group.indices[2])
-        (controller.groupView(group) as! CallbackButton).callback?()
-        precondition(controller.visibleIndices.count == collapsedCount, "A group must collapse after selecting an interior commit")
         precondition(controller.historyGroups == originalGroups)
+        precondition(controller.groupView(group) is NSTextField, "Folded summaries must be labels, not per-group buttons")
+        fold(false)
+        selectInsideGroup(group.indices[2])
+        fold(true)
+        precondition(controller.visibleIndices.count == collapsedCount)
     }
-    fold(false)
-    (controller.groupView(group) as! CallbackButton).callback?()
-    precondition(controller.visibleIndices.count == controller.commits.count + originalGroups.count - group.indices.count)
-    (controller.groupView(group) as! CallbackButton).callback?()
-    precondition(controller.visibleIndices.count == controller.commits.count + originalGroups.count)
-    fold(true)
-    precondition(controller.visibleIndices.count == collapsedCount)
     controller.search.stringValue = "Change"
     controller.applySearch(selected: [])
     precondition(controller.groupHeaders.isEmpty)
@@ -56,6 +50,6 @@ func checkGroupingControls() {
     controller.applySearch(selected: [])
     precondition(controller.visibleIndices.count == collapsedCount)
     controller.window?.close()
-    print("PASS: two-state fold checkbox, repeated fold/unfold, per-group exceptions in both states, stable groups after selection and search restoration")
+    print("PASS: global-only fold checkbox, exact commit rows without unfolded headers, noninteractive folded summaries, stable selection and search restoration")
 }
 checkGroupingControls()

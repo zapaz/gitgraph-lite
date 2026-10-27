@@ -19,7 +19,6 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var branchSelection: Set<String>?
     let groupingToggle = NSButton(checkboxWithTitle: "Plié", target: nil, action: nil)
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
-    var groupOverrides = Set<String>()
     var historyGroups: [HistoryGroup] = []
     var groupHeaders: [Int: HistoryGroup] = [:]
     let spinner = NSProgressIndicator()
@@ -90,7 +89,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         search.setContentHuggingPriority(.init(1), for: .horizontal)
         groupingToggle.target = self; groupingToggle.action = #selector(groupingChanged(_:))
         updateGroupingToggle()
-        groupingToggle.toolTip = "Cocher pour tout plier ; décocher pour tout déplier. Chaque groupe reste ouvrable séparément."
+        groupingToggle.toolTip = "Cocher pour plier les commits ; décocher pour tous les afficher. Réglage global uniquement."
         let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, search, spinner, refresh, open])
         header.orientation = .horizontal; header.alignment = .centerY; header.distribution = .fill; header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
@@ -268,7 +267,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"
         if query.isEmpty {
-            let folded = historyGroups.filter { !isGroupExpanded($0.id) }
+            let folded = groupsFolded ? historyGroups : []
             if !folded.isEmpty { footer.stringValue += " · \(folded.count) groupes repliés (\(folded.reduce(0) { $0 + $1.indices.count }) commits)" }
         }
         more.isHidden = commits.count < limit
