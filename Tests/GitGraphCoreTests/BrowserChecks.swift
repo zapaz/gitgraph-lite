@@ -44,21 +44,33 @@ func checkBranchBrowser() throws {
 }
 
 func checkHistoryGrouping() {
-    let commits = (0..<48).map { Commit(id: "c\($0)", parents: $0 == 47 ? [] : ["c\($0+1)"]) }
+    let commits = (0..<48).map { Commit(id: "c\($0)", parents: $0 == 47 ? [] : ["c\($0+1)"], author: "Author", subject: "Change \($0)") }
     let graph = GraphLayout.make(commits)
     let groups = HistoryGroup.make(commits, graph: graph, protected: ["c0", "c24", "c47"])
-    XCTAssertTrue(!groups.isEmpty)
-    let hidden = Set(groups.flatMap { Array($0.indices) })
+    XCTAssertEqual(groups.count, 2)
+    let hidden = Set(groups.flatMap { Array($0.indices.dropFirst()) })
     XCTAssertTrue(!hidden.contains(0) && !hidden.contains(24) && !hidden.contains(47))
-    XCTAssertTrue(groups.allSatisfy { $0.indices.count >= 3 && $0.indices.count <= 20 })
+    XCTAssertEqual(groups.map { $0.indices.count }, [24, 23]) // No arbitrary 20-commit cutoff.
+    let entire = HistoryGroup.make(commits, graph: graph, protected: [])
+    XCTAssertEqual(entire.count, 1)
+    XCTAssertEqual(entire[0].indices, Array(commits.indices)) // Includes the terminal root commit.
+    XCTAssertEqual(entire[0].hiddenCount, 47)
+    let projected = HistoryProjection.make(commits, groups: entire)
+    XCTAssertEqual(projected.indices, [0])
+    XCTAssertEqual(projected.commits[0].id, commits[0].id)
+    XCTAssertEqual(projected.commits[0].subject, commits[0].subject)
+    XCTAssertEqual(projected.commits[0].author, commits[0].author)
+    XCTAssertTrue(projected.commits[0].parents.isEmpty)
     let branching = [Commit(id: "merge", parents: ["c0", "side"])] + commits + [Commit(id: "side", parents: ["c30"])]
     let junctionGroups = HistoryGroup.make(branching, graph: GraphLayout.make(branching), protected: [])
     for group in junctionGroups {
-        let ids = group.indices.map { branching[$0].id }
+        let ids = group.indices.dropFirst().map { branching[$0].id }
         XCTAssertTrue(!ids.contains("merge") && !ids.contains("c30"))
     }
-    XCTAssertTrue(HistoryGroup.make(Array(commits.prefix(3)), graph: GraphLayout.make(Array(commits.prefix(3))), protected: []).isEmpty)
-    print("PASS: bounded linear history groups preserve refs, merge commits, fork points, root and short histories")
+    XCTAssertTrue(HistoryGroup.make(Array(commits.prefix(1)), graph: GraphLayout.make(Array(commits.prefix(1))), protected: []).isEmpty)
+    let pair = [Commit(id: "head", parents: ["root"]), Commit(id: "root", parents: [])]
+    XCTAssertEqual(HistoryGroup.make(pair, graph: GraphLayout.make(pair), protected: ["head"])[0].hiddenCount, 1)
+    print("PASS: newest commit retained, complete chains through root, exact hidden counts, no chunk limit, and protected refs/junctions remain visible")
 }
 
 func checkFileTree() {
@@ -89,7 +101,7 @@ func checkInterleavedHistoryGroups() {
     XCTAssertTrue(folded.commits.count < commits.count/2)
     let foldedIDs = Set(folded.commits.map(\.id))
     XCTAssertTrue(protected.isSubset(of: foldedIDs))
-    let hidden = Set(groups.flatMap { $0.indices.map { commits[$0].id } })
+    let hidden = Set(groups.flatMap { $0.indices.dropFirst().map { commits[$0].id } })
     XCTAssertTrue(folded.commits.allSatisfy { !hidden.contains($0.id) && $0.parents.allSatisfy { foldedIDs.contains($0) } })
     let positions = Dictionary(uniqueKeysWithValues: folded.commits.enumerated().map { ($0.element.id, $0.offset) })
     for (i, commit) in folded.commits.enumerated() { XCTAssertTrue(commit.parents.allSatisfy { positions[$0]! > i }) }

@@ -16,7 +16,6 @@ final class GraphCell: NSView {
     var row: GraphRow?
     var filtered = false
     var isHead = false
-    var isGroup = false
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         guard let row else { return }
@@ -34,13 +33,6 @@ final class GraphCell: NSView {
             }
         }
         let position = x(filtered ? 0 : row.lane), color = palette[row.color % palette.count]
-        if isGroup {
-            for offset: CGFloat in [-3, 0, 3] {
-                let mark = NSBezierPath(); mark.move(to: NSPoint(x: position-4, y: mid+offset)); mark.line(to: NSPoint(x: position+4, y: mid+offset))
-                color.setStroke(); mark.lineWidth = 1.8; mark.stroke()
-            }
-            return
-        }
         if isHead {
             let ring = NSBezierPath(ovalIn: NSRect(x: position-5, y: mid-5, width: 10, height: 10))
             NSColor.textBackgroundColor.setFill(); ring.fill(); color.setStroke(); ring.lineWidth = 1.6; ring.stroke()
@@ -57,6 +49,7 @@ final class CommitCell: NSTableCellView {
     private var worktrees: [GitWorktree] = []
     private var laneColor = 0
     private var isHead = false
+    private var foldedCount = 0
     private var referenceRegions: [(NSRect, ReferenceLabel)] = []
     override var isFlipped: Bool { true }
     override var backgroundStyle: NSView.BackgroundStyle { didSet { needsDisplay = true } }
@@ -75,13 +68,16 @@ final class CommitCell: NSTableCellView {
         return label.fullNames.first
     }
 
-    func configure(_ commit: Commit, labels: [ReferenceLabel], worktrees: [GitWorktree], color: Int, isHead: Bool) {
-        self.commit = commit; self.labels = labels; self.worktrees = worktrees; laneColor = color; self.isHead = isHead
+    func configure(_ commit: Commit, labels: [ReferenceLabel], worktrees: [GitWorktree], color: Int, isHead: Bool, foldedCount: Int = 0) {
+        self.commit = commit; self.labels = labels; self.worktrees = worktrees; laneColor = color; self.isHead = isHead; self.foldedCount = foldedCount
         referenceRegions.removeAll(keepingCapacity: true)
-        toolTip = ([commit.subject] + labels.flatMap(\.fullNames) + worktrees.map { "Worktree: \($0.path) · \($0.branchLabel)" }).joined(separator: "\n")
+        toolTip = ([commit.subject + foldSuffix] + labels.flatMap(\.fullNames) + worktrees.map { "Worktree: \($0.path) · \($0.branchLabel)" }).joined(separator: "\n")
         setAccessibilityElement(true); setAccessibilityRole(.staticText)
-        setAccessibilityLabel(([commit.subject] + labels.map { $0.name + ($0.remotes.isEmpty ? "" : " (" + $0.remotes.joined(separator: ", ") + ")") }).joined(separator: ", "))
+        setAccessibilityLabel(([commit.subject + foldSuffix] + labels.map { $0.name + ($0.remotes.isEmpty ? "" : " (" + $0.remotes.joined(separator: ", ") + ")") }).joined(separator: ", "))
         needsDisplay = true
+    }
+    var foldSuffix: String {
+        foldedCount > 0 ? " (\(foldedCount) commit\(foldedCount == 1 ? "" : "s") plié\(foldedCount == 1 ? "" : "s"))" : ""
     }
     private func badgeWidth(_ text: String, remote: String = "", bold: Bool = false) -> CGFloat {
         let font = NSFont.systemFont(ofSize: 10.5, weight: bold ? .semibold : .regular)
@@ -157,6 +153,15 @@ final class CommitCell: NSTableCellView {
         let selected = backgroundStyle == .emphasized
         let foreground: NSColor = selected ? .alternateSelectedControlTextColor : commit.parents.count > 1 && !isHead ? .secondaryLabelColor : .labelColor
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: isHead ? .semibold : .regular), .foregroundColor: foreground, .paragraphStyle: paragraph]
-        (commit.subject as NSString).draw(in: NSRect(x: left, y: (bounds.height-16)/2, width: max(0, right-left), height: 16), withAttributes: attributes)
+        let suffix = foldSuffix as NSString
+        let suffixAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: selected ? NSColor.alternateSelectedControlTextColor : .controlAccentColor, .paragraphStyle: paragraph]
+        let available = max(0, right-left)
+        let suffixWidth = min(available, ceil(suffix.size(withAttributes: suffixAttributes).width))
+        let descriptionWidth = max(0, available-suffixWidth)
+        (commit.subject as NSString).draw(in: NSRect(x: left, y: (bounds.height-16)/2, width: descriptionWidth, height: 16), withAttributes: attributes)
+        if foldedCount > 0 {
+            let x = left + min(descriptionWidth, ceil((commit.subject as NSString).size(withAttributes: attributes).width))
+            suffix.draw(in: NSRect(x: x, y: (bounds.height-15)/2, width: suffixWidth, height: 15), withAttributes: suffixAttributes)
+        }
     }
 }

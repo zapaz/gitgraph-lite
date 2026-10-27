@@ -24,7 +24,7 @@ func checkGroupingControls() {
         let id = controller.commits[index].id
         controller.applySearch(selected: [id])
         precondition(controller.historyGroups == originalGroups, "Selection must not change group IDs or boundaries")
-        let row = controller.visibleIndices.indices.first { controller.groupHeaders[$0] == nil && controller.visibleIndices[$0] == index }!
+        let row = controller.visibleIndices.indices.first { controller.visibleIndices[$0] == index }!
         precondition(controller.table.selectedRowIndexes.contains(row))
     }
     for _ in 0..<2 {
@@ -35,13 +35,20 @@ func checkGroupingControls() {
         selectInsideGroup(group.indices[0])
         fold(true)
         precondition(controller.visibleIndices.count == collapsedCount)
-        precondition(controller.table.selectedRowIndexes.isEmpty, "Hidden selections must not select group headers")
+        precondition(controller.table.selectedRowIndexes == IndexSet(integer: 0), "The retained newest commit stays selected")
+        precondition(controller.commit(at: 0)?.id == controller.commits[0].id)
+        precondition(controller.tableView(controller.table, shouldSelectRow: 0))
+        let column = controller.table.tableColumns.first { $0.identifier.rawValue == "subject" }!
+        let cell = controller.tableView(controller.table, viewFor: column, row: 0) as! CommitCell
+        precondition(cell.foldSuffix == " (54 commits pliés)")
         precondition(controller.historyGroups == originalGroups)
-        precondition(controller.groupView(group) is NSTextField, "Folded summaries must be labels, not per-group buttons")
         fold(false)
+        let unfoldedCell = controller.tableView(controller.table, viewFor: column, row: 0) as! CommitCell
+        precondition(unfoldedCell.foldSuffix.isEmpty, "The count disappears entirely when unfolded")
         selectInsideGroup(group.indices[2])
         fold(true)
         precondition(controller.visibleIndices.count == collapsedCount)
+        precondition(controller.table.selectedRowIndexes.isEmpty, "Hidden interior selections are cleared")
     }
     controller.search.stringValue = "Change"
     controller.applySearch(selected: [])
@@ -50,6 +57,6 @@ func checkGroupingControls() {
     controller.applySearch(selected: [])
     precondition(controller.visibleIndices.count == collapsedCount)
     controller.window?.close()
-    print("PASS: global-only fold checkbox, exact commit rows without unfolded headers, noninteractive folded summaries, stable selection and search restoration")
+    print("PASS: global folding keeps the newest real commit, includes the root, appends the exact hidden count, and removes all fold annotations when unfolded")
 }
 checkGroupingControls()

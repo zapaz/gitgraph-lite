@@ -4,25 +4,28 @@ public struct HistoryGroup: Equatable {
     // A branch's commits may be interleaved with other branches in date order.
     public let indices: [Int]
     public let id: String
-    public var nodeID: String { "gitgraph-group:" + id }
-    public static func make(_ commits: [Commit], graph: [GraphRow], protected: Set<String>, chunkSize: Int = 20) -> [HistoryGroup] {
+    public var nodeID: String { id }
+    public var hiddenCount: Int { indices.count-1 }
+    public static func make(_ commits: [Commit], graph: [GraphRow], protected: Set<String>) -> [HistoryGroup] {
         guard commits.count == graph.count else { return [] }
         let positions = Dictionary(uniqueKeysWithValues: commits.enumerated().map { ($0.element.id, $0.offset) })
         var children: [String: Int] = [:]
         for commit in commits { for parent in commit.parents { children[parent, default: 0] += 1 } }
-        func eligible(_ i: Int) -> Bool {
+        func canHide(_ i: Int) -> Bool {
             let c = commits[i]
-            return !protected.contains(c.id) && c.parents.count == 1 && children[c.id] == 1
+            return !protected.contains(c.id) && c.parents.count <= 1 && children[c.id] == 1
         }
         var groups: [HistoryGroup] = [], visited = Set<Int>()
-        for start in commits.indices where !visited.contains(start) && eligible(start) {
-            var chain: [Int] = [], current = start
-            while eligible(current) && !visited.contains(current) && chain.count < max(3, chunkSize) {
-                chain.append(current); visited.insert(current)
-                guard let parent = positions[commits[current].parents[0]], parent > current else { break }
-                current = parent
+        for start in commits.indices where !visited.contains(start) && commits[start].parents.count == 1 {
+            // The newest commit remains visible, including its refs and junctions.
+            var chain = [start], current = start
+            visited.insert(start)
+            while let parentID = commits[current].parents.first,
+                  let parent = positions[parentID], parent > current,
+                  !visited.contains(parent), canHide(parent) {
+                chain.append(parent); visited.insert(parent); current = parent
             }
-            if chain.count >= 3 { groups.append(HistoryGroup(indices: chain, id: commits[start].id)) }
+            if chain.count > 1 { groups.append(HistoryGroup(indices: chain, id: commits[start].id)) }
         }
         return groups
     }
@@ -46,7 +49,8 @@ public struct HistoryProjection {
             if let group = starts[i] {
                 headers[indices.count] = group; indices.append(i)
                 let parents = commits[group.indices.last!].parents.map(resolve)
-                displayed.append(Commit(id: group.nodeID, parents: parents, date: commits[i].date, subject: "\(group.indices.count) commits"))
+                let first = commits[i]
+                displayed.append(Commit(id: group.nodeID, parents: parents, author: first.author, date: first.date, decorations: first.decorations, subject: first.subject))
             }
             guard !hidden.contains(i) else { continue }
             let c = commits[i]

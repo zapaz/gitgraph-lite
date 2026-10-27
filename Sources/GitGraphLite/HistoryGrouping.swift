@@ -24,12 +24,4 @@ extension Controller {
         let projection = HistoryProjection.make(commits, groups: historyGroups)
         visibleIndices = projection.indices; groupHeaders = projection.headers; visibleGraph = projection.graph
     }
-    func groupView(_ group: HistoryGroup) -> NSView {
-        let first = commits[group.indices[0]], last = commits[group.indices.last!]
-        let label = NSTextField(labelWithString: "\(group.indices.count) commits repliés  ·  \(first.subject) …")
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .controlAccentColor; label.lineBreakMode = .byTruncatingTail
-        label.toolTip = "\(first.id.prefix(8)) … \(last.id.prefix(8))\nDécochez Plié pour afficher tous les commits."
-        return label
-    }
 }

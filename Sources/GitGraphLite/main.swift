@@ -262,13 +262,16 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         rebuildHistoryRows(matching: matching)
         rebuilding = true
         table.reloadData()
-        let rows = IndexSet(visibleIndices.indices.filter { groupHeaders[$0] == nil && selected.contains(commits[visibleIndices[$0]].id) })
+        let rows = IndexSet(visibleIndices.indices.filter { selected.contains(commits[visibleIndices[$0]].id) })
         table.selectRowIndexes(rows, byExtendingSelection: false)
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"
         if query.isEmpty {
             let folded = groupsFolded ? historyGroups : []
-            if !folded.isEmpty { footer.stringValue += " · \(folded.count) groupes repliés (\(folded.reduce(0) { $0 + $1.indices.count }) commits)" }
+            if !folded.isEmpty {
+                let hidden = folded.reduce(0) { $0 + $1.hiddenCount }
+                footer.stringValue += " · \(folded.count) \(folded.count == 1 ? "groupe replié" : "groupes repliés") (\(hidden) commit\(hidden == 1 ? "" : "s"))"
+            }
         }
         more.isHidden = commits.count < limit
         if let repo = repository, let issue = repo.worktrees.first(where: { Git.samePath($0.path, repo.path) })?.associationIssue { footer.stringValue += " · " + issue }
@@ -277,7 +280,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     }
 
     func commit(at row: Int) -> Commit? {
-        guard visibleIndices.indices.contains(row), groupHeaders[row] == nil else { return nil }
+        guard visibleIndices.indices.contains(row) else { return nil }
         return commits[visibleIndices[row]]
     }
     func numberOfRows(in tableView: NSTableView) -> Int { tableView === table ? visibleIndices.count : fileRows.count }
@@ -288,24 +291,17 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         if tableView === fileTable {
             return fileRowView(row)
         }
-        if let group = groupHeaders[row] {
-            if id.rawValue == "subject" { return groupView(group) }
-            if id.rawValue == "graph" {
-                let cell = GraphCell(); cell.row = visibleGraph[row]; cell.isGroup = true; return cell
-            }
-            return NSTextField(labelWithString: "")
-        }
         guard let c = commit(at: row) else { return nil }
         switch id.rawValue {
         case "graph":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell()
             cell.identifier = id; cell.row = visibleGraph[row]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            cell.isGroup = false; cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
+            cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
             cell.needsDisplay = true; return cell
         case "subject":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CommitCell) ?? CommitCell()
             cell.identifier = id
-            cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: visibleGraph[row].color, isHead: c.id == activeHead)
+            cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: visibleGraph[row].color, isHead: c.id == activeHead, foldedCount: groupHeaders[row]?.hiddenCount ?? 0)
             return cell
         default:
             let label = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")
@@ -318,7 +314,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         if tableView === fileTable { return fileRows.indices.contains(row) && !fileRows[row].isDirectory }
-        return groupHeaders[row] == nil
+        return visibleIndices.indices.contains(row)
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
