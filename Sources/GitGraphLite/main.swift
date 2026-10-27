@@ -63,46 +63,42 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(outer)
         NSLayoutConstraint.activate([outer.leadingAnchor.constraint(equalTo: root.leadingAnchor), outer.trailingAnchor.constraint(equalTo: root.trailingAnchor), outer.topAnchor.constraint(equalTo: root.topAnchor), outer.bottomAnchor.constraint(equalTo: root.bottomAnchor)])
 
-        let header = NSView(); header.heightAnchor.constraint(equalToConstant: 62).isActive = true
         let appIcon = Bundle.main.path(forResource: "AppIcon", ofType: "icns").flatMap { NSImage(contentsOfFile: $0) }
         let logo = NSImageView(image: appIcon ?? NSImage(systemSymbolName: "point.3.connected.trianglepath.dotted", accessibilityDescription: "GitGraph Lite")!)
-        logo.contentTintColor = .systemTeal
-        logo.imageScaling = .scaleProportionallyUpOrDown
-        let titles = NSStackView(views: [repoTitle, repoSubtitle]); titles.orientation = .vertical; titles.alignment = .leading; titles.spacing = 3
-        repoTitle.font = .systemFont(ofSize: 19, weight: .semibold)
+        logo.contentTintColor = .systemTeal; logo.imageScaling = .scaleProportionallyUpOrDown
+        logo.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        logo.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        repoTitle.font = .systemFont(ofSize: 15, weight: .semibold); repoTitle.lineBreakMode = .byTruncatingMiddle
+        repoTitle.widthAnchor.constraint(lessThanOrEqualToConstant: 160).isActive = true
+        repoTitle.setContentCompressionResistancePriority(.init(500), for: .horizontal)
         repoSubtitle.font = .systemFont(ofSize: 11); repoSubtitle.textColor = .secondaryLabelColor
         repoSubtitle.lineBreakMode = .byTruncatingMiddle
-        let open = NSButton(title: "Open Repository…", target: self, action: #selector(openRepository)); open.bezelStyle = .rounded
+        repoSubtitle.widthAnchor.constraint(lessThanOrEqualToConstant: 190).isActive = true
+        repoSubtitle.setContentCompressionResistancePriority(.init(250), for: .horizontal)
+        let open = NSButton(title: "Open…", target: self, action: #selector(openRepository)); open.bezelStyle = .rounded; open.toolTip = "Open Repository (⌘O)"
         let refresh = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")!, target: self, action: #selector(refreshNow)); refresh.bezelStyle = .rounded; refresh.toolTip = "Refresh (⌘R)"
         spinner.style = .spinning; spinner.controlSize = .small; spinner.isDisplayedWhenStopped = false
-        for view in [logo, titles, open, refresh, spinner] { view.translatesAutoresizingMaskIntoConstraints = false; header.addSubview(view) }
-        NSLayoutConstraint.activate([
-            logo.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 20), logo.centerYAnchor.constraint(equalTo: header.centerYAnchor), logo.widthAnchor.constraint(equalToConstant: 30), logo.heightAnchor.constraint(equalToConstant: 30),
-            titles.leadingAnchor.constraint(equalTo: logo.trailingAnchor, constant: 12), titles.centerYAnchor.constraint(equalTo: header.centerYAnchor), titles.trailingAnchor.constraint(lessThanOrEqualTo: spinner.leadingAnchor, constant: -20),
-            open.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -20), open.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-            refresh.trailingAnchor.constraint(equalTo: open.leadingAnchor, constant: -8), refresh.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-            spinner.trailingAnchor.constraint(equalTo: refresh.leadingAnchor, constant: -12), spinner.centerYAnchor.constraint(equalTo: header.centerYAnchor), spinner.widthAnchor.constraint(equalToConstant: 16), spinner.heightAnchor.constraint(equalToConstant: 16)
-        ])
-        outer.addArrangedSubview(header)
-        outer.addArrangedSubview(separator())
-
+        spinner.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        spinner.heightAnchor.constraint(equalToConstant: 16).isActive = true
         branches.bezelStyle = .rounded; branches.target = self; branches.action = #selector(showBranchPicker)
-        branches.toolTip = "Filter the commit history. This never changes the branch checked out in this worktree."
-        branches.widthAnchor.constraint(equalToConstant: 260).isActive = true
-        search.placeholderString = "Search loaded commits, authors or hashes"; search.delegate = self
-        search.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
-        let hint = NSTextField(labelWithString: "⌘-click two commits to compare"); hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
-        let historyLabel = NSTextField(labelWithString: "HISTORY"); historyLabel.font = .systemFont(ofSize: 10, weight: .semibold); historyLabel.textColor = .secondaryLabelColor
+        branches.toolTip = "Filter the commit history. Open or create worktrees from the branch list."
+        branches.widthAnchor.constraint(equalToConstant: 210).isActive = true
+        search.placeholderString = "Search commits, authors or hashes"; search.delegate = self
+        search.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
+        search.setContentHuggingPriority(.init(1), for: .horizontal)
         groupingToggle.target = self; groupingToggle.action = #selector(groupingChanged(_:))
         updateGroupingToggle()
         groupingToggle.toolTip = "Cocher pour tout plier ; décocher pour tout déplier. Chaque groupe reste ouvrable séparément."
-        let tools = NSStackView(views: [historyLabel, branches, groupingToggle, search, hint]); tools.spacing = 14; tools.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
-        tools.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        tools.distribution = .fill; search.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        outer.addArrangedSubview(tools)
+        let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, search, spinner, refresh, open])
+        header.orientation = .horizontal; header.alignment = .centerY; header.distribution = .fill; header.spacing = 8
+        header.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        header.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        outer.addArrangedSubview(header)
+        outer.addArrangedSubview(separator())
 
         table.delegate = self; table.dataSource = self
         table.menuProvider = { [weak self] row, reference in self?.commitMenu(at: row, reference: reference) }
+        table.toolTip = "⌘-click two commits to compare"
         table.style = .plain
         table.rowHeight = 24; table.intercellSpacing = NSSize(width: 0, height: 0)
         table.allowsMultipleSelection = true; table.usesAlternatingRowBackgroundColors = true
@@ -214,8 +210,9 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     }
                     if self.worktreeManager?.window?.isVisible == true { self.worktreeManager?.reload() }
                     self.repoTitle.stringValue = URL(fileURLWithPath: repo.path).lastPathComponent
-                    self.repoSubtitle.stringValue = repo.path + "  ·  " + repo.branch + (repo.worktrees.first { Git.samePath($0.path, repo.path) }.map { "  ·  " + $0.stateLabel } ?? "")
-                    self.repoSubtitle.toolTip = repo.path
+                    self.repoSubtitle.stringValue = repo.branch + (repo.worktrees.first { Git.samePath($0.path, repo.path) }.map { "  ·  " + $0.stateLabel } ?? "")
+                    self.repoTitle.toolTip = repo.path
+                    self.repoSubtitle.toolTip = repo.path + "  ·  " + self.repoSubtitle.stringValue
                     self.window?.title = self.repoTitle.stringValue + " — GitGraph Lite"
                     self.branchPins = Set(UserDefaults.standard.stringArray(forKey: self.branchPreferenceKey) ?? [])
                     self.updateBranchButton()

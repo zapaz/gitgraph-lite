@@ -26,6 +26,8 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 
 ## Branch browser and compact history (version 0.8)
 
+The header uses a single compact row for the repository, active branch/state, branch browser, fold checkbox, search, refresh and open controls. The full repository path is available in the repository tooltip.
+
 - The HISTORY picker supports multiple branches. A branch name includes its local and origin references, even when their tips diverge. Filtering never checks out a branch.
 - `main` and `master`, when present, are always pinned and included in filtered history. Star other branches to keep them visible too. Pins persist per repository and are shared between its worktrees. Pinning controls history visibility, not Git write permissions.
 - Each branch shows its local/remote versions and associated worktree, with **Open worktree** or one-click **Create worktree**. Remote-only origin branches create a same-named tracking local branch in a new worktree; the active folder is preserved.
