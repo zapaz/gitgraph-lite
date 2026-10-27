@@ -3,6 +3,21 @@ import GitGraphCore
 
 final class CommitTableView: NSTableView {
     var menuProvider: ((Int, String?) -> NSMenu?)?
+    func handleFoldClick(_ event: NSEvent) -> Bool {
+        let index = row(at: convert(event.locationInWindow, from: nil))
+        if index >= 0 {
+            for name in ["graph", "subject"] {
+                guard let column = tableColumns.firstIndex(where: { $0.identifier.rawValue == name }), let cell = view(atColumn: column, row: index, makeIfNecessary: false) else { continue }
+                let point = cell.convert(event.locationInWindow, from: nil)
+                if let graph = cell as? GraphCell, graph.handleFoldClick(at: point) { return true }
+                if let commit = cell as? CommitCell, commit.handleFoldClick(at: point) { return true }
+            }
+        }
+        return false
+    }
+    override func mouseDown(with event: NSEvent) {
+        if !handleFoldClick(event) { super.mouseDown(with: event) }
+    }
     override func menu(for event: NSEvent) -> NSMenu? {
         let index = row(at: convert(event.locationInWindow, from: nil))
         guard index >= 0 else { return nil }

@@ -69,7 +69,7 @@ func checkHistoryGrouping() {
     }
     XCTAssertTrue(HistoryGroup.make(Array(commits.prefix(1)), graph: GraphLayout.make(Array(commits.prefix(1))), protected: []).isEmpty)
     let pair = [Commit(id: "head", parents: ["root"]), Commit(id: "root", parents: [])]
-    XCTAssertEqual(HistoryGroup.make(pair, graph: GraphLayout.make(pair), protected: ["head"])[0].hiddenCount, 1)
+    XCTAssertTrue(HistoryGroup.make(pair, graph: GraphLayout.make(pair), protected: ["head"]).isEmpty)
     print("PASS: newest commit retained, complete chains through root, exact hidden counts, no chunk limit, and protected refs/junctions remain visible")
 }
 

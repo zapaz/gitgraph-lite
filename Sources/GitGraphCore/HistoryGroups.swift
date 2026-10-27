@@ -25,7 +25,7 @@ public struct HistoryGroup: Equatable {
                   !visited.contains(parent), canHide(parent) {
                 chain.append(parent); visited.insert(parent); current = parent
             }
-            if chain.count > 1 { groups.append(HistoryGroup(indices: chain, id: commits[start].id)) }
+            if chain.count > 2 { groups.append(HistoryGroup(indices: chain, id: commits[start].id)) }
         }
         return groups
     }

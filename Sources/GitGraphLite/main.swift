@@ -18,6 +18,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var branchPins = Set<String>()
     var branchSelection: Set<String>?
     let groupingToggle = NSButton(checkboxWithTitle: "Plié", target: nil, action: nil)
+    var expandedGroups = Set<String>()
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
     var historyGroups: [HistoryGroup] = []
     var groupHeaders: [Int: HistoryGroup] = [:]
@@ -89,7 +90,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         search.setContentHuggingPriority(.init(1), for: .horizontal)
         groupingToggle.target = self; groupingToggle.action = #selector(groupingChanged(_:))
         updateGroupingToggle()
-        groupingToggle.toolTip = "Cocher pour plier les commits ; décocher pour tous les afficher. Réglage global uniquement."
+        groupingToggle.toolTip = "Cocher pour tout plier ; décocher pour tout afficher. Les traits ou le compteur déplient une suite."
         let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, search, spinner, refresh, open])
         header.orientation = .horizontal; header.alignment = .centerY; header.distribution = .fill; header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
@@ -186,7 +187,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         guard !operationRunning else { return }
         worktreeManager?.close()
         comparisonAnchor = nil
-        limit = 500; branchSelection = nil; branchPopover.close(); search.stringValue = ""
+        limit = 500; expandedGroups.removeAll(); branchSelection = nil; branchPopover.close(); search.stringValue = ""
         refresh(path: path, switching: true, focusHead: focusHead)
     }
     @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
@@ -267,7 +268,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         rebuilding = false
         footer.stringValue = query.isEmpty ? "\(commits.count) commits loaded · Updates automatically" : "\(visibleIndices.count) matches in \(commits.count) loaded commits · Graph connections hidden while searching"
         if query.isEmpty {
-            let folded = groupsFolded ? historyGroups : []
+            let folded = groupsFolded ? historyGroups.filter { !expandedGroups.contains($0.id) } : []
             if !folded.isEmpty {
                 let hidden = folded.reduce(0) { $0 + $1.hiddenCount }
                 footer.stringValue += " · \(folded.count) \(folded.count == 1 ? "groupe replié" : "groupes repliés") (\(hidden) commit\(hidden == 1 ? "" : "s"))"
@@ -297,11 +298,15 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? GraphCell) ?? GraphCell()
             cell.identifier = id; cell.row = visibleGraph[row]; cell.filtered = !search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             cell.isFolded = groupHeaders[row] != nil
-            cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "")
+            let groupID = groupHeaders[row]?.id
+            cell.unfoldAction = groupID.map { id in { [weak self] in self?.unfoldGroup(id) } }
+            cell.isHead = c.id == activeHead; cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "") + (cell.isFolded ? "\nCliquer sur les trois traits pour déplier cette suite." : "")
             cell.needsDisplay = true; return cell
         case "subject":
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? CommitCell) ?? CommitCell()
             cell.identifier = id
+            let groupID = groupHeaders[row]?.id
+            cell.unfoldAction = groupID.map { id in { [weak self] in self?.unfoldGroup(id) } }
             cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: visibleGraph[row].color, isHead: c.id == activeHead, foldedCount: groupHeaders[row]?.hiddenCount ?? 0)
             return cell
         default:

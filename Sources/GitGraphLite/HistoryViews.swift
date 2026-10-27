@@ -17,7 +17,17 @@ final class GraphCell: NSView {
     var filtered = false
     var isHead = false
     var isFolded = false
+    var unfoldAction: (() -> Void)?
     override var isFlipped: Bool { true }
+    @discardableResult func handleFoldClick(at point: NSPoint) -> Bool {
+        guard isFolded, !filtered, let row, let unfoldAction else { return false }
+        let marker = NSRect(x: 16 + CGFloat(row.lane)*15-10, y: bounds.midY-9, width: 20, height: 18)
+        guard marker.contains(point) else { return false }
+        unfoldAction(); return true
+    }
+    override func mouseDown(with event: NSEvent) {
+        if !handleFoldClick(at: convert(event.locationInWindow, from: nil)) { super.mouseDown(with: event) }
+    }
     override func draw(_ dirtyRect: NSRect) {
         guard let row else { return }
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
@@ -28,40 +38,27 @@ final class GraphCell: NSView {
             for edge in row.edges {
                 let top: CGFloat = edge.segment == 2 ? mid : 0
                 let bottom: CGFloat = edge.segment == 1 ? mid : bounds.height
-                let path: NSBezierPath
-                if isFolded && edge.segment == 2 && edge.from == row.lane {
-                    path = foldedLine(from: NSPoint(x: x(edge.from), y: top), to: NSPoint(x: x(edge.to), y: bottom))
-                } else {
-                    path = NSBezierPath(); path.move(to: NSPoint(x: x(edge.from), y: top))
-                    path.curve(to: NSPoint(x: x(edge.to), y: bottom), controlPoint1: NSPoint(x: x(edge.from), y: top + (bottom-top)*0.6), controlPoint2: NSPoint(x: x(edge.to), y: bottom - (bottom-top)*0.6))
-                }
+                let path = NSBezierPath(); path.move(to: NSPoint(x: x(edge.from), y: top))
+                path.curve(to: NSPoint(x: x(edge.to), y: bottom), controlPoint1: NSPoint(x: x(edge.from), y: top + (bottom-top)*0.6), controlPoint2: NSPoint(x: x(edge.to), y: bottom - (bottom-top)*0.6))
                 palette[edge.color % palette.count].setStroke(); path.lineWidth = 1.5; path.stroke()
             }
         }
         let position = x(filtered ? 0 : row.lane), color = palette[row.color % palette.count]
-        // A folded chain ending at the root has no outgoing layout edge, but its hidden tail still needs the marker.
-        if isFolded && !filtered && !row.edges.contains(where: { $0.segment == 2 && $0.from == row.lane }) {
-            let path = foldedLine(from: NSPoint(x: position, y: mid), to: NSPoint(x: position, y: bounds.height))
-            color.setStroke(); path.lineWidth = 1.5; path.stroke()
-        }
         if isHead {
             let ring = NSBezierPath(ovalIn: NSRect(x: position-5, y: mid-5, width: 10, height: 10))
             NSColor.textBackgroundColor.setFill(); ring.fill(); color.setStroke(); ring.lineWidth = 1.6; ring.stroke()
         }
-        let dot = NSBezierPath(ovalIn: NSRect(x: position-3, y: mid-3, width: 6, height: 6))
-        color.setFill(); dot.fill()
-        NSColor.textBackgroundColor.setStroke(); dot.lineWidth = 0.7; dot.stroke()
-    }
-    private func foldedLine(from start: NSPoint, to end: NSPoint) -> NSBezierPath {
-        let path = NSBezierPath(); path.lineJoinStyle = .round; path.lineCapStyle = .round
-        path.move(to: start)
-        // Keep both endpoints fixed: the zigzag is part of the branch line, not an overlaid icon.
-        for (fraction, offset): (CGFloat, CGFloat) in [(0.25, 0), (0.40, -3), (0.65, 3), (0.80, 0), (1, 0)] {
-            path.line(to: NSPoint(x: start.x + (end.x-start.x)*fraction + offset, y: start.y + (end.y-start.y)*fraction))
+        if isFolded && !filtered {
+            for offset: CGFloat in [-3, 0, 3] {
+                let mark = NSBezierPath(); mark.move(to: NSPoint(x: position-4, y: mid+offset)); mark.line(to: NSPoint(x: position+4, y: mid+offset))
+                color.setStroke(); mark.lineWidth = 1.8; mark.stroke()
+            }
+        } else {
+            let dot = NSBezierPath(ovalIn: NSRect(x: position-3, y: mid-3, width: 6, height: 6))
+            color.setFill(); dot.fill()
+            NSColor.textBackgroundColor.setStroke(); dot.lineWidth = 0.7; dot.stroke()
         }
-        return path
     }
-
 }
 
 final class CommitCell: NSTableCellView {
@@ -71,6 +68,8 @@ final class CommitCell: NSTableCellView {
     private var laneColor = 0
     private var isHead = false
     private var foldedCount = 0
+    var unfoldAction: (() -> Void)?
+    private(set) var foldCounterRect = NSRect.zero
     private var referenceRegions: [(NSRect, ReferenceLabel)] = []
     override var isFlipped: Bool { true }
     override var backgroundStyle: NSView.BackgroundStyle { didSet { needsDisplay = true } }
@@ -91,11 +90,19 @@ final class CommitCell: NSTableCellView {
 
     func configure(_ commit: Commit, labels: [ReferenceLabel], worktrees: [GitWorktree], color: Int, isHead: Bool, foldedCount: Int = 0) {
         self.commit = commit; self.labels = labels; self.worktrees = worktrees; laneColor = color; self.isHead = isHead; self.foldedCount = foldedCount
-        referenceRegions.removeAll(keepingCapacity: true)
+        referenceRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
         toolTip = ([commit.subject + foldSuffix] + labels.flatMap(\.fullNames) + worktrees.map { "Worktree: \($0.path) · \($0.branchLabel)" }).joined(separator: "\n")
+        if foldedCount >= 2 { toolTip = (toolTip ?? "") + "\nCliquer sur le compteur pour déplier cette suite." }
         setAccessibilityElement(true); setAccessibilityRole(.staticText)
         setAccessibilityLabel(([commit.subject + foldSuffix] + labels.map { $0.name + ($0.remotes.isEmpty ? "" : " (" + $0.remotes.joined(separator: ", ") + ")") }).joined(separator: ", "))
         needsDisplay = true
+    }
+    @discardableResult func handleFoldClick(at point: NSPoint) -> Bool {
+        guard foldedCount >= 2, !foldCounterRect.isEmpty, foldCounterRect.insetBy(dx: -4, dy: -4).contains(point), let unfoldAction else { return false }
+        unfoldAction(); return true
+    }
+    override func mouseDown(with event: NSEvent) {
+        if !handleFoldClick(at: convert(event.locationInWindow, from: nil)) { super.mouseDown(with: event) }
     }
     var foldSuffix: String {
         foldedCount > 0 ? " (\(foldedCount) commit\(foldedCount == 1 ? "" : "s") plié\(foldedCount == 1 ? "" : "s"))" : ""
@@ -126,7 +133,7 @@ final class CommitCell: NSTableCellView {
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let commit else { return }
-        referenceRegions.removeAll(keepingCapacity: true)
+        referenceRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: bounds).addClip()
         let branchColor = palette[laneColor % palette.count]
@@ -182,7 +189,8 @@ final class CommitCell: NSTableCellView {
         (commit.subject as NSString).draw(in: NSRect(x: left, y: (bounds.height-16)/2, width: descriptionWidth, height: 16), withAttributes: attributes)
         if foldedCount > 0 {
             let x = left + min(descriptionWidth, ceil((commit.subject as NSString).size(withAttributes: attributes).width))
-            suffix.draw(in: NSRect(x: x, y: (bounds.height-15)/2, width: suffixWidth, height: 15), withAttributes: suffixAttributes)
+            foldCounterRect = NSRect(x: x, y: (bounds.height-15)/2, width: suffixWidth, height: 15)
+            suffix.draw(in: foldCounterRect, withAttributes: suffixAttributes)
         }
     }
 }
