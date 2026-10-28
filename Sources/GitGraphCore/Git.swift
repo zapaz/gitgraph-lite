@@ -34,6 +34,7 @@ public struct Repository {
 
 public struct GitError: LocalizedError {
     public let message: String
+    public init(message: String) { self.message = message }
     public var errorDescription: String? { message }
 }
 

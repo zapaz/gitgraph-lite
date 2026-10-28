@@ -2,7 +2,7 @@ import AppKit
 import GitGraphCore
 
 final class CommitTableView: NSTableView {
-    var menuProvider: ((Int, String?) -> NSMenu?)?
+    var menuProvider: ((Int, HistoryMenuTarget) -> NSMenu?)?
     func handleFoldClick(_ event: NSEvent) -> Bool {
         let index = row(at: convert(event.locationInWindow, from: nil))
         if index >= 0 {
@@ -21,184 +21,32 @@ final class CommitTableView: NSTableView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let index = row(at: convert(event.locationInWindow, from: nil))
         guard index >= 0 else { return nil }
-        var reference: String?
+        var target = HistoryMenuTarget.commit
         if let column = tableColumns.firstIndex(where: { $0.identifier.rawValue == "subject" }), let cell = view(atColumn: column, row: index, makeIfNecessary: false) as? CommitCell {
-            reference = cell.reference(at: cell.convert(event.locationInWindow, from: nil))
+            target = cell.contextTarget(at: cell.convert(event.locationInWindow, from: nil))
         }
         if !selectedRowIndexes.contains(index) { selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false) }
-        return menuProvider?(index, reference)
+        return menuProvider?(index, target)
     }
 }
 
 final class MenuCommand: NSObject {
     let id: CommitActionID
-    let context: String?
+    let kind: ActionItemKind
     let usage: ActionUsage
     let handler: () -> Void
-    init(id: CommitActionID, context: String? = nil, usage: ActionUsage, handler: @escaping () -> Void) {
-        self.id = id; self.context = context; self.usage = usage; self.handler = handler
+    init(id: CommitActionID, kind: ActionItemKind = .commit, usage: ActionUsage, handler: @escaping () -> Void) {
+        self.id = id; self.kind = kind; self.usage = usage; self.handler = handler
     }
     @objc func invoke(_ sender: Any?) {
         guard (sender as? NSMenuItem)?.isEnabled != false else { return }
-        usage.record(id)
+        usage.record(id, kind: kind)
         handler()
     }
 }
 
 extension Controller {
-    func commitMenu(at row: Int, reference: String? = nil) -> NSMenu? {
-        guard let commit = commit(at: row), let repo = repository else { return nil }
-        let menu = NSMenu(); menu.autoenablesItems = false
-        @discardableResult func add(_ title: String, id: CommitActionID, to parent: NSMenu? = nil, enabled: Bool = true, _ handler: @escaping () -> Void) -> NSMenuItem {
-            let command = MenuCommand(id: id, context: parent?.title, usage: actionUsage, handler: handler)
-            let item = NSMenuItem(title: title, action: #selector(MenuCommand.invoke(_:)), keyEquivalent: "")
-            item.target = command; item.representedObject = command; item.isEnabled = enabled
-            item.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
-            (parent ?? menu).addItem(item)
-            return item
-        }
-        func submenu(_ title: String) -> NSMenu {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            let sub = NSMenu(title: title); sub.autoenablesItems = false; item.submenu = sub; menu.addItem(item); return sub
-        }
-        let activeWorkspace = repo.worktrees.first { Git.samePath($0.path, repo.path) }
-        let canWrite = !loading && !operationRunning && repo.pendingOperation == nil && activeWorkspace?.associationIssue == nil && activeWorkspace?.branch != nil
-        let canOpenWorktree = !loading && !operationRunning
-        let current = repo.branch
-
-        add("Add Tag...", id: .addTag, enabled: canWrite) { [weak self] in self?.tagDialog(commit, repo: repo) }
-        add("Create Local Branch", id: .createBranch, enabled: canOpenWorktree) { [weak self] in
-            self?.createLocalBranchOnly(start: commit.id)
-        }.toolTip = "Create a local branch only. Its workspace will be created when you open it."
-        menu.addItem(.separator())
-        add("Open Branch…", id: .checkout, enabled: canOpenWorktree) { [weak self] in self?.openCommitBranch(commit, repo: repo, reference: reference) }
-            .toolTip = "Open the branch’s dedicated workspace, creating it if needed. The current folder never changes branch."
-        add("Cherry Pick...", id: .cherryPick, enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
-        add("Revert...", id: .revert, enabled: canWrite) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: true) }
-        menu.addItem(.separator())
-        add("Merge into current branch...", id: .merge, enabled: canWrite) { [weak self] in self?.mergeDialog(commit, repo: repo) }
-        add("Rebase current branch on this Commit...", id: .rebase, enabled: canWrite) { [weak self] in
-            self?.confirmAction("Rebase Current Branch", detail: "Rebase \(current) onto \(commit.id.prefix(8)). This rewrites commit hashes and preserves merge structure. A backup branch will save the previous HEAD. A clean working tree is required.", repo: repo, action: .rebase(commit.id), destructive: true)
-        }
-        add("Reset current branch to this Commit...", id: .reset, enabled: canWrite) { [weak self] in self?.resetDialog(commit, repo: repo) }
-        menu.addItem(.separator())
-        add("Copy Commit Hash to Clipboard", id: .copyHash) { [weak self] in self?.copyText(commit.id) }
-        add("Copy Commit Subject to Clipboard", id: .copySubject) { [weak self] in self?.copyText(commit.subject) }
-
-        do {
-            menu.addItem(.separator())
-            add("Copy Full Commit Message", id: .copyMessage) { [weak self] in
-                self?.readFromRepository(repo.path) { try Git.message(at: repo.path, commit: commit.id) } completion: { text in self?.copyText(text) }
-            }
-            add("Compare with HEAD", id: .compareHead) { [weak self] in
-                self?.readFromRepository(repo.path) { try Git.string(["rev-parse", "HEAD"], at: repo.path) } completion: { head in self?.showDetails(for: commit, base: head) }
-            }
-            add("Select for Comparison", id: .selectComparison) { [weak self] in self?.comparisonAnchor = commit; self?.footer.stringValue = "Right-click another commit to compare with \(commit.id.prefix(8))." }
-            if let anchor = comparisonAnchor, anchor.id != commit.id {
-                add("Compare with \(anchor.id.prefix(8))", id: .compareAnchor) { [weak self] in self?.showDetails(for: commit, base: anchor.id) }
-            }
-            let selected = table.selectedRowIndexes.compactMap { self.commit(at: $0) }
-            if selected.count == 2 { add("Compare Selected Commits", id: .compareSelected) { [weak self] in self?.showDetails(for: selected[0], base: selected[1].id) } }
-            add("Create and Open Branch Here…", id: .createWorktree, enabled: canOpenWorktree) { [weak self] in self?.manageWorktrees(start: commit.id) }
-            add("Drop Commit...", id: .drop, enabled: canWrite && commit.parents.count == 1) { [weak self] in
-                self?.confirmAction("Drop Commit", detail: "Remove \(commit.id.prefix(8)) from the current branch's history and replay its descendants. This rewrites commit hashes. The commit must be an ancestor of \(current). A backup branch will save the previous HEAD.", repo: repo, action: .drop(commit.id), destructive: true)
-            }
-            for ref in repo.references where ref.target == commit.id && !ref.symbolic {
-                let remote = ref.name.hasPrefix("refs/remotes/")
-                guard ref.isBranch || ref.isTag || remote else { continue }
-                let sub = submenu((remote ? "Remote Branch: " : ref.isBranch ? "Branch: " : "Tag: ") + ref.shortName)
-                if remote {
-                    add("Open \(ref.shortName) Locally…", id: .checkoutRemote, to: sub, enabled: canOpenWorktree) { [weak self] in
-                        self?.navigateRepository(title: "Opening " + ref.shortName, repo: repo) { try Git.openRemoteBranch(ref.name, at: repo.path, expectedSignature: repo.signature) }
-                    }
-                    add("Create Local Branch", id: .createLocalFromRemote, to: sub, enabled: canOpenWorktree) { [weak self] in self?.createLocalBranchOnly(start: commit.id, remote: ref.name) }
-                    add("Copy Branch Name", id: .copyBranchName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                } else if ref.isBranch {
-                    let occupied = repo.worktrees.first { $0.assignedBranch == ref.name || $0.branch == ref.name }
-                    if let occupied {
-                        let active = Git.samePath(occupied.path, repo.path)
-                        add(active ? "Current Worktree: \(occupied.name)" : "Open Worktree: \(occupied.name)", id: .openWorktree, to: sub, enabled: occupied.exists && occupied.associationIssue == nil && !operationRunning && !active) { [weak self] in self?.openLocalWorkspace(ref.shortName, repo: repo) }
-                    } else {
-                        add("Open Branch…", id: .createBranchWorktree, to: sub, enabled: !loading && !operationRunning) { [weak self] in self?.manageWorktrees(start: commit.id, branch: ref.shortName) }
-                    }
-                    add("Copy Branch Name", id: .copyBranchName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                    add("Rename Branch…", id: .renameBranch, to: sub, enabled: canWrite && occupied == nil) { [weak self] in self?.renameBranchDialog(ref.shortName, repo: repo) }
-                    add("Delete Branch…", id: .deleteBranch, to: sub, enabled: canWrite && ref.shortName != current && occupied == nil) { [weak self] in
-                        self?.confirmAction("Delete Branch", detail: "Delete local branch \(ref.shortName). Git will refuse if it contains unmerged work. The branch will not be deleted from any remote.", repo: repo, action: .deleteBranch(ref.shortName), destructive: true)
-                    }
-                } else {
-                    add("Copy Tag Name", id: .copyTagName, to: sub) { [weak self] in self?.copyText(ref.shortName) }
-                    add("Delete Tag…", id: .deleteTag, to: sub, enabled: canWrite) { [weak self] in
-                        self?.confirmAction("Delete Tag", detail: "Delete local tag \(ref.shortName). The tag will not be deleted from any remote.", repo: repo, action: .deleteTag(ref.shortName), destructive: true)
-                    }
-                }
-            }
-        }
-        if let operation = repo.pendingOperation {
-            menu.addItem(.separator())
-            add("Continue \(operation.capitalized)…", id: .continueOperation, enabled: !operationRunning && activeWorkspace?.associationIssue == nil && activeWorkspace?.assignedBranch != nil) { [weak self] in
-                self?.confirmAction("Continue \(operation.capitalized)", detail: "Resolve conflicts in your editor and stage the resolved files first, then continue the pending \(operation).", repo: repo, action: .continueOperation(operation))
-            }
-            add("Abort \(operation.capitalized)…", id: .abortOperation, enabled: !operationRunning && activeWorkspace?.associationIssue == nil && activeWorkspace?.assignedBranch != nil) { [weak self] in
-                self?.confirmAction("Abort \(operation.capitalized)", detail: "Abort the pending \(operation) and return to its previous state. Conflict-resolution work may be discarded.", repo: repo, action: .abortOperation(operation), destructive: true)
-            }
-        }
-        return compactCommitMenu(menu)
-    }
-
-    func compactCommitMenu(_ full: NSMenu) -> NSMenu {
-        var items: [CommitActionID: [NSMenuItem]] = [:]
-        func collect(_ menu: NSMenu) {
-            for item in menu.items {
-                if let sub = item.submenu { collect(sub) }
-                else if let command = item.representedObject as? MenuCommand {
-                    menu.removeItem(item)
-                    items[command.id, default: []].append(item)
-                }
-            }
-        }
-        collect(full)
-        let result = NSMenu(); result.autoenablesItems = false
-        let more = NSMenu(); more.autoenablesItems = false
-        for (index, id) in actionUsage.ranked(Array(items.keys)).enumerated() {
-            let choices = items[id]!
-            let item: NSMenuItem
-            if choices.count == 1 {
-                item = choices[0]
-                if let command = item.representedObject as? MenuCommand, let context = command.context {
-                    item.title += " — " + context
-                }
-            } else {
-                // One ranked action, several possible refs: keep targets explicit without taking several top-five slots.
-                item = NSMenuItem(title: id.title, action: nil, keyEquivalent: "")
-                item.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
-                let targets = NSMenu(title: id.title); targets.autoenablesItems = false
-                for choice in choices {
-                    if let command = choice.representedObject as? MenuCommand, let context = command.context { choice.title = context }
-                    targets.addItem(choice)
-                }
-                item.submenu = targets; item.isEnabled = choices.contains { $0.isEnabled }
-            }
-            (index < 5 ? result : more).addItem(item)
-        }
-        if !more.items.isEmpty {
-            result.addItem(.separator())
-            let extra = NSMenuItem(title: "Plus…", action: nil, keyEquivalent: ""); extra.submenu = more; result.addItem(extra)
-        }
-        return result
-    }
-
     func copyText(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
-
-    func readFromRepository(_ path: String, work: @escaping () throws -> String, completion: @escaping (String) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try work() }
-            DispatchQueue.main.async {
-                guard let self, self.repository?.path == path else { return }
-                switch result { case .success(let text): completion(text); case .failure(let error): self.showError(error.localizedDescription) }
-            }
-        }
-    }
 
     func showError(_ text: String) {
         let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = "Git action could not finish"; alert.informativeText = text
@@ -270,26 +118,6 @@ extension Controller {
             }
         }
     }
-    func openCommitBranch(_ commit: Commit, repo: Repository, reference: String? = nil) {
-        guard !operationRunning, repository?.path == repo.path else { return }
-        let refs = repo.references.filter { $0.target == commit.id && !$0.symbolic }
-        if let reference, let ref = refs.first(where: { $0.name == reference }) {
-            if ref.name.hasPrefix("refs/remotes/") { openRemoteWorkspace(ref.name, repo: repo) }
-            else if ref.isBranch { openLocalWorkspace(ref.shortName, repo: repo) }
-            else { createAutomaticWorktree(start: commit.id) }
-            return
-        }
-        let locals = refs.filter(\.isBranch).sorted { a, b in
-            if (a.shortName == repo.branch) != (b.shortName == repo.branch) { return a.shortName == repo.branch }
-            return a.name < b.name
-        }
-        if let local = locals.first { openLocalWorkspace(local.shortName, repo: repo) }
-        else if let remote = refs.filter({ $0.name.hasPrefix("refs/remotes/") }).sorted(by: { a, b in
-            if a.shortName.hasPrefix("origin/") != b.shortName.hasPrefix("origin/") { return a.shortName.hasPrefix("origin/") }
-            return a.name < b.name
-        }).first { openRemoteWorkspace(remote.name, repo: repo) }
-        else { createAutomaticWorktree(start: commit.id) }
-    }
     func openLocalWorkspace(_ branch: String, repo: Repository) {
         navigateRepository(title: "Opening " + branch, repo: repo) { try Git.openLocalBranch(branch, at: repo.path, expectedSignature: repo.signature) }
     }
@@ -315,19 +143,6 @@ extension Controller {
             }
         }
     }
-    func resetDialog(_ commit: Commit, repo: Repository) {
-        let mode = NSPopUpButton()
-        mode.addItems(withTitles: ["Soft — keep changes staged", "Mixed — keep changes, unstage files", "Hard — discard local changes"])
-        mode.selectItem(at: 1)
-        let alert = inputForm("Reset Current Branch", detail: "Move \(repo.branch) to \(commit.id.prefix(8)).\n\nSoft keeps changes staged. Mixed keeps file changes but unstages them. Hard discards tracked changes and may remove untracked files that obstruct target files.\n\nA backup branch saves the previous HEAD, not uncommitted changes.", controls: [mode])
-        alert.alertStyle = .warning
-        alert.beginSheetModal(for: window!) { [weak self] response in
-            guard response == .alertSecondButtonReturn else { return }
-            let modes = ["soft", "mixed", "hard"]
-            guard modes.indices.contains(mode.indexOfSelectedItem) else { return }
-            self?.execute(.reset(commit: commit.id, mode: modes[mode.indexOfSelectedItem]), repo: repo, title: "Reset Current Branch")
-        }
-    }
     func tagDialog(_ commit: Commit, repo: Repository) {
         let name = nameField("Tag name"), annotation = nameField("Annotation (optional)")
         let alert = inputForm("Add Tag", detail: "Tag commit \(commit.id.prefix(8)). An annotation creates an annotated tag; otherwise the tag is lightweight.", controls: [name, annotation])
@@ -340,7 +155,7 @@ extension Controller {
         let name = nameField("New branch name", value: old)
         let alert = inputForm("Rename Branch", detail: "Rename local branch \(old).", controls: [name])
         alert.beginSheetModal(for: window!) { [weak self] response in
-            if response == .alertSecondButtonReturn { self?.execute(.renameBranch(old: old, new: name.stringValue), repo: repo, title: "Rename Branch") }
+            if response == .alertSecondButtonReturn { self?.executeItemAction(.renameBranch(old: old, new: name.stringValue), repo: repo, title: "Rename Branch") }
         }
     }
     func mainlineDialog(_ commit: Commit, repo: Repository, revert: Bool) {

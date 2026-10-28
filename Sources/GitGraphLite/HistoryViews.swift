@@ -98,10 +98,17 @@ final class CommitCell: NSTableCellView {
     var unfoldAction: (() -> Void)?
     private(set) var foldCounterRect = NSRect.zero
     private var referenceRegions: [(NSRect, ReferenceLabel)] = []
+    private var worktreeRegions: [(NSRect, GitWorktree)] = []
+    func contextTarget(at point: NSPoint) -> HistoryMenuTarget {
+        guard bounds.contains(point) else { return .commit }
+        if let tree = worktreeRegions.first(where: { $0.0.contains(point) })?.1 { return .worktree(tree.path) }
+        if let reference = reference(at: point) { return .reference(reference) }
+        return .commit
+    }
     override var isFlipped: Bool { true }
     override var backgroundStyle: NSView.BackgroundStyle { didSet { needsDisplay = true } }
     func reference(at point: NSPoint) -> String? {
-        guard let (box, label) = referenceRegions.first(where: { $0.0.contains(point) }) else { return nil }
+        guard bounds.contains(point), let (box, label) = referenceRegions.first(where: { $0.0.contains(point) }) else { return nil }
         if !label.remotes.isEmpty {
             let font = NSFontManager.shared.convert(.systemFont(ofSize: 10), toHaveTrait: .italicFontMask)
             var right = box.maxX-5
@@ -117,7 +124,7 @@ final class CommitCell: NSTableCellView {
 
     func configure(_ commit: Commit, labels: [ReferenceLabel], worktrees: [GitWorktree], color: Int, isHead: Bool, foldedCount: Int = 0) {
         self.commit = commit; self.labels = labels; self.worktrees = worktrees; laneColor = color; self.isHead = isHead; self.foldedCount = foldedCount
-        referenceRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
+        referenceRegions.removeAll(keepingCapacity: true); worktreeRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
         toolTip = ([commit.subject + foldSuffix] + labels.flatMap(\.fullNames) + worktrees.map { "Worktree: \($0.path) · \($0.branchLabel)" }).joined(separator: "\n")
         if foldedCount >= 2 { toolTip = (toolTip ?? "") + "\nCliquer sur le compteur pour déplier cette suite." }
         setAccessibilityElement(true); setAccessibilityRole(.staticText)
@@ -160,7 +167,7 @@ final class CommitCell: NSTableCellView {
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let commit else { return }
-        referenceRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
+        referenceRegions.removeAll(keepingCapacity: true); worktreeRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: bounds).addClip()
         let branchColor = palette[laneColor % palette.count]
@@ -196,13 +203,13 @@ final class CommitCell: NSTableCellView {
             }
         }
         // Always label occupancy: an icon-only badge left an empty outlined compartment.
-        if !worktrees.isEmpty {
-            let text = worktrees.count == 1 ? "Worktree" : "\(worktrees.count) worktrees"
-            let width = badgeWidth(text)
-            if right-left > width+130 {
-                badge(text, icon: "square.stack.3d.up", color: .systemBlue, x: left, width: width)
-                left += width+5
-            }
+        for tree in worktrees {
+            let text = tree.name
+            let width = min(220, badgeWidth(text))
+            guard right-left > width+130 else { break }
+            worktreeRegions.append((NSRect(x: left, y: (bounds.height-18)/2, width: width, height: 18), tree))
+            badge(text, icon: "square.stack.3d.up", color: .systemBlue, x: left, width: width)
+            left += width+5
         }
         let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
         let selected = backgroundStyle == .emphasized

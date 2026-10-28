@@ -3,6 +3,8 @@ import GitGraphCore
 
 final class CallbackButton: NSButton {
     var callback: (() -> Void)?
+    var contextMenuProvider: (() -> NSMenu?)?
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenuProvider?() ?? super.menu(for: event) }
     convenience init(_ title: String, _ callback: @escaping () -> Void) {
         self.init(title: title, target: nil, action: nil)
         self.callback = callback; target = self; action = #selector(invoke)
@@ -11,6 +13,14 @@ final class CallbackButton: NSButton {
     @objc private func invoke() { callback?() }
 }
 
+private final class ContextLabel: NSTextField {
+    var contextMenuProvider: (() -> NSMenu?)?
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenuProvider?() ?? super.menu(for: event) }
+}
+private final class BranchContextRow: NSStackView {
+    var contextMenuProvider: (() -> NSMenu?)?
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenuProvider?() ?? super.menu(for: event) }
+}
 private final class BranchList: NSStackView {
     override var isFlipped: Bool { true }
 }
@@ -69,7 +79,7 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             check.lineBreakMode = .byTruncatingMiddle
             check.toolTip = group.references.joined(separator: "\n")
             let versions = group.references.map { $0.hasPrefix("refs/heads/") ? "local" : $0.replacingOccurrences(of: "refs/remotes/", with: "") }.joined(separator: " · ")
-            let detail = NSTextField(labelWithString: versions + (tree.map { "  |  " + $0.name + " · " + $0.stateLabel } ?? (group.localReference == nil ? "  |  Remote only" : "  |  No workspace yet")))
+            let detail = ContextLabel(labelWithString: versions + (tree.map { "  |  " + $0.name + " · " + $0.stateLabel } ?? (group.localReference == nil ? "  |  Remote only" : "  |  No workspace yet")))
             detail.font = .systemFont(ofSize: 10); detail.textColor = .secondaryLabelColor; detail.lineBreakMode = .byTruncatingMiddle; detail.toolTip = tree?.path
             let name = NSStackView(views: [check, detail]); name.orientation = .vertical; name.alignment = .leading; name.spacing = 1
             let pin = CallbackButton(pinned ? "★" : "☆") { [weak owner] in
@@ -98,7 +108,17 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             worktree.isEnabled = !owner.loading && !owner.operationRunning && (tree?.exists ?? true) && tree?.associationIssue == nil
             worktree.toolTip = tree?.associationIssue ?? tree?.path ?? "Create and open this branch’s dedicated workspace."
             worktree.widthAnchor.constraint(equalToConstant: 70).isActive = true
-            let row = NSStackView(views: [name, pin, local, worktree]); row.spacing = 8; row.distribution = .fill
+            let menu: () -> NSMenu? = { [weak owner] in
+                guard let owner, let current = owner.repository else { return nil }
+                let reference = group.localReference ?? remote
+                return reference.flatMap { owner.branchMenu(reference: $0, repo: current) }
+            }
+            check.contextMenuProvider = menu; detail.contextMenuProvider = menu
+            worktree.contextMenuProvider = { [weak owner] in
+                guard let owner, let current = owner.repository else { return nil }
+                return tree.map { owner.worktreeMenu($0, repo: current) } ?? menu()
+            }
+            let row = BranchContextRow(views: [name, pin, local, worktree]); row.contextMenuProvider = menu; row.spacing = 8; row.distribution = .fill
             row.heightAnchor.constraint(equalToConstant: 44).isActive = true
             name.setContentHuggingPriority(.init(1), for: .horizontal)
             name.setContentCompressionResistancePriority(.init(1), for: .horizontal)

@@ -13,10 +13,21 @@ extension Controller {
     }
 }
 
+final class WorktreeItemTable: NSTableView {
+    var menuProvider: ((Int, String?) -> NSMenu?)?
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil), row = row(at: convert(event.locationInWindow, from: nil))
+        guard row >= 0 else { return nil }
+        selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        let col = column(at: point)
+        return menuProvider?(row, tableColumns.indices.contains(col) ? tableColumns[col].identifier.rawValue : nil)
+    }
+}
+
 final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
     weak var browser: Controller?
     let repoPath: String
-    let table = NSTableView()
+    let table = WorktreeItemTable()
     let summary = NSTextField(labelWithString: "Loading worktrees…")
     let detail = NSTextField(labelWithString: "")
     var trees: [GitWorktree] = []
@@ -43,6 +54,12 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
         table.delegate = self; table.dataSource = self; table.rowHeight = 36
         table.usesAlternatingRowBackgroundColors = true; table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.doubleAction = #selector(openSelected); table.target = self
+        table.menuProvider = { [weak self] row, column in
+            guard let self, self.trees.indices.contains(row), let browser = self.browser, let repo = browser.repository, Git.samePath(repo.path, self.repoPath) else { return nil }
+            let tree = self.trees[row]
+            if column == "branch", let branch = tree.branch { return browser.branchMenu(reference: branch, repo: repo) }
+            return browser.worktreeMenu(tree, repo: repo)
+        }
         for (id, title, width) in [("name", "WORKTREE", 170.0), ("branch", "BRANCH / HEAD", 220.0), ("state", "STATE", 180.0), ("path", "LOCATION", 420.0)] {
             let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id)); c.title = title; c.width = width; c.minWidth = 90; table.addTableColumn(c)
         }

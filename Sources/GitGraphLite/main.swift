@@ -55,7 +55,6 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var loadID = UUID(), detailID = UUID(), patchID = UUID()
     var loading = false, checking = false, rebuilding = false
     var operationRunning = false
-    var comparisonAnchor: Commit?
     var detailsRepositoryPath: String?
     var worktreeManager: WorktreeManager?
     var timer: Timer?
@@ -113,7 +112,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.addArrangedSubview(separator())
 
         table.delegate = self; table.dataSource = self
-        table.menuProvider = { [weak self] row, reference in self?.commitMenu(at: row, reference: reference) }
+        table.menuProvider = { [weak self] row, target in self?.itemMenu(at: row, target: target) }
         table.toolTip = "⌘-click two commits to compare"
         table.style = .plain
         table.rowHeight = 24; table.intercellSpacing = NSSize(width: 0, height: 0)
@@ -200,7 +199,6 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     func open(_ path: String, focusHead: Bool = false) {
         guard !operationRunning else { return }
         worktreeManager?.close()
-        comparisonAnchor = nil
         limit = 500; expandedGroups.removeAll(); collapsedGroups.removeAll(); branchSelection = nil; branchPopover.close(); search.stringValue = ""
         refresh(path: path, switching: true, focusHead: focusHead)
     }
@@ -311,7 +309,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         }
         more.isHidden = commits.count < limit
         if let repo = repository, let issue = repo.worktrees.first(where: { Git.samePath($0.path, repo.path) })?.associationIssue { footer.stringValue += " · " + issue }
-        if let operation = repository?.pendingOperation { footer.stringValue += " · \(operation) in progress — right-click for Continue / Abort" }
+        if let operation = repository?.pendingOperation { footer.stringValue += " · \(operation) in progress — File menu: Continue / Abort" }
         if rows.isEmpty { clearDetails() } else { loadDetails() }
     }
 
@@ -478,6 +476,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let reveal = file.addItem(withTitle: "Reveal in Finder", action: #selector(Controller.revealRepository), keyEquivalent: ""); reveal.target = controller
         let manage = file.addItem(withTitle: "Manage Worktrees…", action: #selector(Controller.showWorktreeManager), keyEquivalent: ""); manage.target = controller
         file.addItem(.separator()); file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        file.addItem(.separator())
+        file.addItem(withTitle: "Continue Git Operation…", action: #selector(Controller.continueCurrentOperation), keyEquivalent: "").target = controller
+        file.addItem(withTitle: "Abort Git Operation…", action: #selector(Controller.abortCurrentOperation), keyEquivalent: "").target = controller
         let edit = submenu("Edit")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")

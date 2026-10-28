@@ -10,8 +10,17 @@ public enum CommitActionID: String, CaseIterable {
     case renameBranch, deleteBranch, copyTagName, deleteTag
     case continueOperation, abortOperation, createLocalFromRemote
 
+    case copyShortHash, pushBranch, pullBranch, pushTag, copyWorktreePath, revealWorktree, deleteWorktree
+
     public var title: String {
         switch self {
+        case .copyShortHash: return "Copy Short Commit Hash"
+        case .pushBranch: return "Push to origin"
+        case .pullBranch: return "Pull from origin"
+        case .pushTag: return "Publish on origin"
+        case .copyWorktreePath: return "Copy Worktree Path"
+        case .revealWorktree: return "Show in Finder"
+        case .deleteWorktree: return "Delete Worktree…"
         case .checkout: return "Open Branch…"
         case .createWorktree: return "Create and Open Branch Here…"
         case .compareHead: return "Compare with HEAD"
@@ -44,6 +53,8 @@ public enum CommitActionID: String, CaseIterable {
     }
 }
 
+public enum ActionItemKind: String { case commit, branch, worktree, tag }
+
 public final class ActionUsage {
     private let defaults: UserDefaults
     private let key = "commitActionClickCounts.v1"
@@ -53,18 +64,28 @@ public final class ActionUsage {
             if let count = entry.value as? Int, count >= 0 { result[entry.key] = count }
         }
     }
-    public func count(_ id: CommitActionID) -> Int { counts[id.rawValue] ?? 0 }
-    public func record(_ id: CommitActionID) {
-        var values = counts
-        let previous = values[id.rawValue] ?? 0
-        values[id.rawValue] = previous == Int.max ? Int.max : previous+1
-        defaults.set(values, forKey: key)
+    private func storageKey(_ id: CommitActionID, kind: ActionItemKind) -> String {
+        kind == .commit ? id.rawValue : kind.rawValue + "." + id.rawValue
     }
-    public func ranked(_ ids: [CommitActionID]) -> [CommitActionID] {
+    public func count(_ id: CommitActionID, kind: ActionItemKind = .commit) -> Int {
         let values = counts
-        let priority = Dictionary(uniqueKeysWithValues: CommitActionID.allCases.enumerated().map { ($0.element, $0.offset) })
-        return Array(Set(ids)).sorted {
-            let a = values[$0.rawValue] ?? 0, b = values[$1.rawValue] ?? 0
+        return values[storageKey(id, kind: kind)] ?? values[id.rawValue] ?? 0
+    }
+    public func record(_ id: CommitActionID, kind: ActionItemKind = .commit) {
+        var values = counts
+        let key = storageKey(id, kind: kind)
+        let previous = values[key] ?? values[id.rawValue] ?? 0
+        values[key] = previous == Int.max ? Int.max : previous+1
+        defaults.set(values, forKey: self.key)
+    }
+    public func ranked(_ ids: [CommitActionID], kind: ActionItemKind = .commit) -> [CommitActionID] {
+        let values = counts
+        var seen = Set<CommitActionID>()
+        let unique = ids.filter { seen.insert($0).inserted }
+        let priority = Dictionary(uniqueKeysWithValues: unique.enumerated().map { ($0.element, $0.offset) })
+        return unique.sorted {
+            let a = values[storageKey($0, kind: kind)] ?? values[$0.rawValue] ?? 0
+            let b = values[storageKey($1, kind: kind)] ?? values[$1.rawValue] ?? 0
             return a != b ? a > b : priority[$0]! < priority[$1]!
         }
     }

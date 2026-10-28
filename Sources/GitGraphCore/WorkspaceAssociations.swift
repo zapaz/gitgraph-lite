@@ -76,6 +76,49 @@ public enum WorkspaceAssociations {
         }
         return result
     }
+    static func renameBranch(old: String, new: String, at path: String) throws -> String {
+        let oldRef = "refs/heads/" + old, newRef = "refs/heads/" + new
+        let trees = try Git.worktrees(at: path)
+        let occupied = trees.filter { $0.branch == oldRef || $0.assignedBranch == oldRef }
+        guard occupied.count <= 1 else { throw GitError(message: "This branch has more than one workspace association.") }
+        let target = occupied.first
+        if let target {
+            guard target.exists, !target.isBare, target.associationIssue == nil, target.branch == oldRef else {
+                throw GitError(message: target.associationIssue ?? "The selected branch's workspace is unavailable.")
+            }
+        }
+        let executionPath = target?.path ?? path
+        guard try Git.pendingOperation(at: executionPath) == nil else { throw GitError(message: "Finish or abort the pending operation in this workspace before renaming its branch.") }
+        let raw = try Git.string(["rev-parse", "--git-common-dir"], at: path)
+        let common = URL(fileURLWithPath: raw, relativeTo: URL(fileURLWithPath: path, isDirectory: true)).standardizedFileURL.resolvingSymlinksInPath()
+        let file = common.appendingPathComponent("gitgraph-lite-workspaces.json")
+        let fd = Darwin.open(common.appendingPathComponent("gitgraph-lite-workspaces.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard fd >= 0 else { throw GitError(message: "Cannot access workspace associations.") }
+        defer { Darwin.close(fd) }
+        guard flock(fd, LOCK_EX) == 0 else { throw GitError(message: "Cannot lock workspace associations.") }
+        defer { flock(fd, LOCK_UN) }
+        var records = FileManager.default.fileExists(atPath: file.path) ? try JSONDecoder().decode([String: WorkspaceRecord].self, from: Data(contentsOf: file)) : [:]
+        guard !records.values.contains(where: { $0.branch == newRef }) else { throw GitError(message: "The new name is already assigned to a workspace.") }
+        let keys = records.keys.filter { records[$0]?.branch == oldRef }
+        guard keys.count <= 1, target == nil || keys.contains(where: { Git.samePath(records[$0]!.path, executionPath) }) else {
+            throw GitError(message: "The workspace association changed. Refresh before renaming.")
+        }
+        if target != nil, try Git.string(["symbolic-ref", "--quiet", "HEAD"], at: executionPath) != oldRef {
+            throw GitError(message: "The workspace changed branch outside the app. No rename was performed.")
+        }
+        for key in keys { records[key] = WorkspaceRecord(branch: newRef, path: records[key]!.path) }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(records)
+        let output = try Git.string(["branch", "-m", "--", old, new], at: executionPath)
+        do { try data.write(to: file, options: .atomic) }
+        catch {
+            do { _ = try Git.run(["branch", "-m", "--", new, old], at: executionPath) }
+            catch { throw GitError(message: "Branch was renamed, but association update and rename rollback failed. Inspect this workspace before editing.") }
+            throw GitError(message: "Could not save the workspace association; the branch rename was rolled back.")
+        }
+        return output
+    }
+
 }
 
 extension Git {

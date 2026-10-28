@@ -25,6 +25,7 @@ public enum GitAction {
 public struct ActionResult {
     public let output: String
     public let backup: String?
+    public init(output: String, backup: String?) { self.output = output; self.backup = backup }
 }
 
 extension Git {
@@ -52,7 +53,7 @@ extension Git {
         let recovery: Bool
         switch action { case .continueOperation, .abortOperation: recovery = true; default: recovery = false }
         if !recovery, let pending = try pendingOperation(at: path) {
-            throw GitError(message: "A \(pending) is already in progress. Resolve conflicts and use Continue, or choose Abort from the commit menu.")
+            throw GitError(message: "A \(pending) is already in progress. Resolve conflicts and use Continue, or choose File > Abort Git Operation.")
         }
         if expectedSignature != nil { try validateWorkspace(at: path) }
         var args: [String] = [], backup: String?
@@ -112,7 +113,7 @@ extension Git {
             let pending = try? pendingOperation(at: path)
             var message = error.localizedDescription
             if let backup { message += "\n\nPrevious HEAD saved as branch \(backup)." }
-            if let pending { message += "\n\nA \(pending) is in progress. Resolve conflicts in your editor, stage the resolved files, then use Continue from the commit menu. Use Abort to return to the previous state." }
+            if let pending { message += "\n\nA \(pending) is in progress. Resolve conflicts in your editor, stage the resolved files, then use File > Continue Git Operation. Use Abort to return to the previous state." }
             throw GitError(message: message)
         }
     }

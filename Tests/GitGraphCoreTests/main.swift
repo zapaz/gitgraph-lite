@@ -104,3 +104,5 @@ checkInterleavedHistoryGroups()
 
 checkSearchIndex()
 try checkHistorySnapshotReload()
+
+try checkRepositoryItemActions()
