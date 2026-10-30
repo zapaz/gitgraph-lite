@@ -2,6 +2,18 @@
 
 [← Product overview & download](../README.md) · [Release history](../HISTORY.md)
 
+## Parallel development with AI and worktrees
+
+Worktrees let several AI tasks use separate working folders and branches within one repository. GitGraph Lite manages those workspaces and shows their histories together; your editor or AI tool runs each task in its own folder.
+
+1. Create or choose a branch for each task in the branch browser.
+2. Use **Open** on a branch. The app automatically creates its dedicated worktree on first use, then reuses that folder on later opens.
+3. Open the worktree's folder in the editor or AI session for that task. **Copy Worktree Path** and **Show in Finder** are available from its context menu.
+4. Repeat for another branch to work in parallel. Existing worktrees keep their branches and local changes.
+5. Select the relevant branches in the graph, inspect their diffs and compare commits before merging finished work into the intended current branch.
+
+A local branch can exist without a worktree until you open it. Worktree associations belong to this local repository, while remote branches remain independent. See [Branches and dedicated workspaces](#branches-and-dedicated-workspaces) for the full model.
+
 ## Run
 
 Open the prebuilt **GitGraph Lite.app**, or build it from source with the commands below. Then choose **Open Repository…** (⌘O).
