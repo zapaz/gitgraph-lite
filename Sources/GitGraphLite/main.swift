@@ -17,7 +17,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     let branchPopover = NSPopover()
     var branchPins = Set<String>()
     var branchSelection: Set<String>?
-    let groupingToggle = NSButton(checkboxWithTitle: "Plié", target: nil, action: nil)
+    let groupingToggle = NSButton(checkboxWithTitle: "Folded", target: nil, action: nil)
+    let allBranchesToggle = NSButton(checkboxWithTitle: "All", target: nil, action: nil)
     var expandedGroups = Set<String>()
     var collapsedGroups = Set<String>()
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
@@ -54,7 +55,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var base: String?
     var loadID = UUID(), detailID = UUID(), patchID = UUID()
     var loading = false, checking = false, rebuilding = false
-    var operationRunning = false
+    var operationRunning = false { didSet { updateBranchButton() } }
     var detailsRepositoryPath: String?
     var worktreeManager: WorktreeManager?
     var timer: Timer?
@@ -103,8 +104,11 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         search.setContentHuggingPriority(.init(1), for: .horizontal)
         groupingToggle.target = self; groupingToggle.action = #selector(groupingChanged(_:))
         updateGroupingToggle()
-        groupingToggle.toolTip = "Cocher pour tout plier ; décocher pour tout afficher. Les traits ou le compteur déplient une suite."
-        let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, search, spinner, refresh, open])
+        groupingToggle.toolTip = "Fold commit chains. Uncheck to show every commit; use + / − to expand or fold one chain."
+        allBranchesToggle.target = self; allBranchesToggle.action = #selector(allBranchesChanged(_:))
+        allBranchesToggle.toolTip = "Show all local and remote branch histories. Uncheck to show only selected and pinned branches."
+        updateBranchButton()
+        let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, allBranchesToggle, search, spinner, refresh, open])
         header.orientation = .horizontal; header.alignment = .centerY; header.distribution = .fill; header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         header.heightAnchor.constraint(equalToConstant: 44).isActive = true

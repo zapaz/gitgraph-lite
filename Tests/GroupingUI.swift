@@ -18,7 +18,7 @@ func checkGroupingControls() {
     func fold(_ folded: Bool) {
         controller.groupingToggle.state = folded ? .on : .off
         precondition(NSApp.sendAction(controller.groupingToggle.action!, to: controller.groupingToggle.target, from: controller.groupingToggle))
-        precondition(controller.groupingToggle.title == (folded ? "Plié" : "Déplié"))
+        precondition(controller.groupingToggle.title == "Folded")
     }
     func selectInsideGroup(_ index: Int) {
         let id = controller.commits[index].id

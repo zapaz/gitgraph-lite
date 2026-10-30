@@ -28,7 +28,7 @@ extension Controller {
     }
     func updateGroupingToggle() {
         let state: NSControl.StateValue = groupsFolded ? .on : .off
-        let title = groupsFolded ? "Plié" : "Déplié"
+        let title = "Folded"
         if groupingToggle.state != state { groupingToggle.state = state }
         if groupingToggle.title != title { groupingToggle.title = title }
     }

@@ -38,9 +38,8 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
         search.placeholderString = "Find a branch or worktree"; search.delegate = self
         all.setButtonType(.switch)
         all.callback = { [weak self] in
-            guard let owner = self?.owner else { return }
-            owner.branchSelection = owner.branchSelection == nil ? [] : nil
-            owner.branchSelectionChanged()
+            guard let self, let owner = self.owner else { return }
+            owner.allBranchesChanged(self.all)
         }
         let hint = NSTextField(wrappingLabelWithString: "Select several branches. Local + origin histories are combined. Pinned branches stay visible.")
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
@@ -55,6 +54,7 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
     func rebuild() {
         guard isViewLoaded, let owner, let repo = owner.repository else { return }
         all.state = owner.branchSelection == nil ? .on : .off
+        all.isEnabled = !owner.operationRunning
         let query = search.stringValue.lowercased()
         let rows = BranchList(); rows.orientation = .vertical; rows.alignment = .leading; rows.spacing = 2
         let groups = repo.branchGroups.sorted {
@@ -151,12 +151,22 @@ extension Controller {
         branchPopover.contentViewController = picker; branchPopover.behavior = .transient
         branchPopover.show(relativeTo: branches.bounds, of: branches, preferredEdge: .maxY)
     }
+    @objc func allBranchesChanged(_ sender: NSButton) {
+        guard repository != nil, !operationRunning else {
+            updateBranchButton(); (branchPopover.contentViewController as? BranchPicker)?.rebuild()
+            return
+        }
+        branchSelection = sender.state == .on ? nil : []
+        branchSelectionChanged()
+    }
     func branchSelectionChanged() {
         guard !operationRunning, let repo = repository else { return }
         limit = 500; updateBranchButton(); (branchPopover.contentViewController as? BranchPicker)?.rebuild()
         refresh(path: repo.path, historyOnly: true)
     }
     func updateBranchButton() {
+        allBranchesToggle.state = branchSelection == nil ? .on : .off
+        allBranchesToggle.isEnabled = repository != nil && !operationRunning
         guard let repo = repository else { return }
         let count = repo.branchGroups.filter { branchSelection?.contains($0.name) == true || $0.mandatoryPin || branchPins.contains($0.name) }.count
         branches.title = branchSelection == nil ? "All branches ▾" : "\(count) branches (including pins) ▾"
