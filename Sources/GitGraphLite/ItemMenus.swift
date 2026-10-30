@@ -68,8 +68,11 @@ extension Controller {
             if local { self?.openLocalWorkspace(name, repo: repo) } else { self?.openRemoteWorkspace(ref.name, repo: repo) }
         }.toolTip = "Reuse this branch’s workspace, or create it automatically. Never switch an existing workspace’s branch."
         menu.add("Push to origin", id: .pushBranch, enabled: ready && local) { [weak self] in self?.executeItemAction(.pushBranch(name), repo: repo, title: "Push " + name) }
-        menu.add("Pull from origin", id: .pullBranch, enabled: ready && origin && available && (tree == nil || tree?.changedFiles == 0)) { [weak self] in self?.executeItemAction(.pullBranch(name), repo: repo, title: "Pull " + name) }
-            .toolTip = "Fetch only origin/\(name) and fast-forward its dedicated workspace; diverged history is left unchanged."
+        let referenceOnlyPull = group.localReference != nil && Git.canPullWithoutEditingWorkspace(name, worktrees: repo.worktrees)
+        menu.add("Pull from origin", id: .pullBranch, enabled: ready && origin && (referenceOnlyPull || available && (tree == nil || tree?.changedFiles == 0))) { [weak self] in self?.executeItemAction(.pullBranch(name), repo: repo, title: "Pull " + name) }
+            .toolTip = referenceOnlyPull
+                ? "Update origin/\(name) and fast-forward local \(name) without touching the workspace currently on another branch."
+                : "Fetch only origin/\(name) and fast-forward its dedicated workspace; diverged history is left unchanged."
         menu.add("Rename…", id: .renameBranch, enabled: ready && local && available) { [weak self] in self?.renameBranchDialog(name, repo: repo) }
         let commit = Commit(id: ref.target, parents: [], subject: name)
         menu.add("Merge into \(repo.branch)…", id: .merge, enabled: canEditCurrent(repo) && ref.target != activeHead) { [weak self] in self?.mergeDialog(commit, repo: repo) }

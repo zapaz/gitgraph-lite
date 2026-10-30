@@ -18,6 +18,7 @@ All published application versions are available from the linked GitHub releases
 
 | Version & download | Release |
 | --- | --- |
+| [v0.11.2](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.11.2) | GitGraph Lite 0.11.2: pull an unused local branch despite an externally switched workspace |
 | [v0.11.1](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.11.1) | GitGraph Lite 0.11.1: synchronized All branches checkbox and English folding control |
 | [v0.11.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.11.0) | GitGraph Lite 0.11.0: essential per-item actions and targeted origin sync |
 | [v0.10.7](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.10.7) | GitGraph Lite 0.10.7: measured loading and filtering performance improvements |

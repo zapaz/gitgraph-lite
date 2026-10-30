@@ -112,6 +112,18 @@ func checkAdaptiveCommitMenu() throws {
     has(branchButton.menu(for:rightClick)!,branchIDs)
     let recovery = NSMenuItem(title:"Continue",action:#selector(Controller.continueCurrentOperation),keyEquivalent:"")
     precondition(!controller.validateMenuItem(recovery))
+    _ = try git(["update-ref", "refs/remotes/origin/main", hash])
+    _ = try git(["switch", "-c", "prod"])
+    try "keep prod edits".write(to: URL(fileURLWithPath: path).appendingPathComponent("dirty.txt"), atomically: true, encoding: .utf8)
+    let switched = try Git.load(at: path, branch: nil, limit: 500)
+    controller.repository = switched
+    let pull = controller.branchMenu(reference: "refs/remotes/origin/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!
+    precondition(pull.isEnabled, "Remote main must allow Pull without editing the folder externally switched to prod")
+    precondition(controller.branchMenu(reference: "refs/heads/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!.isEnabled)
+    controller.loading = true
+    precondition(!controller.branchMenu(reference: "refs/remotes/origin/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!.isEnabled)
+    controller.loading = false
+    print("PASS: Pull enabled on local/remote main despite the prod association mismatch; loading still blocks actions")
     print("PASS: four short typed menus, per-item frequency persistence, legacy counts, disabled guards, full/10-character hashes and exact workspace path; real badge/table right-click routing targets commit/local/remote/tag/worktree correctly")
 }
 try checkAdaptiveCommitMenu()

@@ -27,11 +27,29 @@ extension Git {
             let reference = "refs/heads/" + name
             let existing = try? string(["show-ref", "--verify", "--hash", reference], at: path)
             let trees = try worktrees(at: path)
-            if let tree = trees.first(where: { $0.branch == reference || $0.assignedBranch == reference }) {
+            let referenceOnly = existing != nil && canPullWithoutEditingWorkspace(name, worktrees: trees)
+            if !referenceOnly, let tree = trees.first(where: { $0.branch == reference || $0.assignedBranch == reference }) {
                 try validatePullWorkspace(tree.path, branch: reference)
             }
-            _ = try run(["-c", "fetch.recurseSubmodules=false", "fetch", "--no-tags", "--no-recurse-submodules", "--", "origin", "+refs/heads/" + name + ":refs/remotes/origin/" + name], at: path)
+            _ = try run(["-c", "fetch.recurseSubmodules=false", "fetch", "--no-tags", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "--", "origin", "+refs/heads/" + name + ":refs/remotes/origin/" + name], at: path)
             let fetched = try string(["rev-parse", "--verify", "refs/remotes/origin/" + name + "^{commit}"], at: path)
+            if referenceOnly, let existing {
+                // An externally switched workspace still belongs to its original branch
+                // in our metadata. Update the unused ref without repairing that binding
+                // or touching the folder now checked out on a different branch.
+                guard canPullWithoutEditingWorkspace(name, worktrees: try worktrees(at: path)),
+                      try string(["rev-parse", "--verify", reference], at: path) == existing else {
+                    throw GitError(message: "The selected branch or its workspace changed during fetch. Refresh before pulling.")
+                }
+                guard (try? run(["merge-base", "--is-ancestor", existing, fetched], at: path)) != nil else {
+                    throw GitError(message: "Cannot fast-forward the selected local branch. Its history has diverged; no local branch or workspace was changed.")
+                }
+                // A non-forced local fetch also lets Git reject a branch checked out
+                // in any worktree, including one opened since the snapshot above.
+                _ = try run(["-c", "fetch.recurseSubmodules=false", "fetch", "--no-tags", "--no-prune", "--no-prune-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--", ".", fetched + ":" + reference], at: path)
+                output = "Updated origin/\(name) and local \(name). No workspace was changed."
+                break
+            }
             if existing == nil { _ = try createLocalBranchFromRemote("refs/remotes/origin/" + name, at: path) }
             let destination = try openLocalBranch(name, at: path)
             try validatePullWorkspace(destination.path, branch: reference)
@@ -41,6 +59,12 @@ extension Git {
             output = try string(["merge", "--ff-only", "--", fetched], at: destination.path)
         }
         return ActionResult(output: output, backup: nil)
+    }
+    public static func canPullWithoutEditingWorkspace(_ name: String, worktrees: [GitWorktree]) -> Bool {
+        let reference = "refs/heads/" + name
+        let assigned = worktrees.filter { $0.assignedBranch == reference || $0.branch == reference }
+        guard assigned.count == 1, let tree = assigned.first else { return false }
+        return tree.associationIssue != nil && tree.branch != nil && tree.branch != reference
     }
     private static func requireOrigin(at path: String) throws {
         guard (try? run(["remote", "get-url", "origin"], at: path)) != nil else {
