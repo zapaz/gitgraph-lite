@@ -18,7 +18,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var branchPins = Set<String>()
     var branchSelection: Set<String>?
     let groupingToggle = NSButton(checkboxWithTitle: "Folded", target: nil, action: nil)
-    let allBranchesToggle = NSButton(checkboxWithTitle: "All", target: nil, action: nil)
+    let pinnedBranchesToggle = NSButton(checkboxWithTitle: "Pinned", target: nil, action: nil)
     var expandedGroups = Set<String>()
     var collapsedGroups = Set<String>()
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
@@ -105,10 +105,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         groupingToggle.target = self; groupingToggle.action = #selector(groupingChanged(_:))
         updateGroupingToggle()
         groupingToggle.toolTip = "Fold commit chains. Uncheck to show every commit; use + / − to expand or fold one chain."
-        allBranchesToggle.target = self; allBranchesToggle.action = #selector(allBranchesChanged(_:))
-        allBranchesToggle.toolTip = "Show all local and remote branch histories. Uncheck to show only selected and pinned branches."
+        pinnedBranchesToggle.target = self; pinnedBranchesToggle.action = #selector(pinnedBranchesChanged(_:))
+        pinnedBranchesToggle.toolTip = "Show selected and pinned branches. Uncheck to show all local and remote branch histories."
         updateBranchButton()
-        let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, allBranchesToggle, search, spinner, refresh, open])
+        let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, pinnedBranchesToggle, search, spinner, refresh, open])
         header.orientation = .horizontal; header.alignment = .centerY; header.distribution = .fill; header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         header.heightAnchor.constraint(equalToConstant: 44).isActive = true

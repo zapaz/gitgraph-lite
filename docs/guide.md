@@ -24,7 +24,7 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 
 ## Branch browser and compact history 
 
-The **All** checkbox beside **Folded** mirrors **All branches** in the branch browser. Checking it shows every local and remote branch; unchecking it leaves pinned branches visible so you can choose a focused selection. Both controls stay synchronized.
+The **Pinned** checkbox beside **Folded** is the inverse of **All branches** in the branch browser. Checking **Pinned** shows pinned branches; you can add selected branches in the browser. Unchecking it shows every local and remote branch. Selecting individual branches also checks **Pinned**. Both controls stay synchronized with opposite states.
 
 The header uses a single compact row for the repository, active branch/state, branch browser, fold checkbox, search, refresh and open controls. The full repository path is available in the repository tooltip.
 

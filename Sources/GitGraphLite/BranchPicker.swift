@@ -152,11 +152,17 @@ extension Controller {
         branchPopover.show(relativeTo: branches.bounds, of: branches, preferredEdge: .maxY)
     }
     @objc func allBranchesChanged(_ sender: NSButton) {
+        setAllBranches(sender.state == .on)
+    }
+    @objc func pinnedBranchesChanged(_ sender: NSButton) {
+        setAllBranches(sender.state != .on)
+    }
+    private func setAllBranches(_ showAll: Bool) {
         guard repository != nil, !operationRunning else {
             updateBranchButton(); (branchPopover.contentViewController as? BranchPicker)?.rebuild()
             return
         }
-        branchSelection = sender.state == .on ? nil : []
+        branchSelection = showAll ? nil : []
         branchSelectionChanged()
     }
     func branchSelectionChanged() {
@@ -165,8 +171,8 @@ extension Controller {
         refresh(path: repo.path, historyOnly: true)
     }
     func updateBranchButton() {
-        allBranchesToggle.state = branchSelection == nil ? .on : .off
-        allBranchesToggle.isEnabled = repository != nil && !operationRunning
+        pinnedBranchesToggle.state = branchSelection == nil ? .off : .on
+        pinnedBranchesToggle.isEnabled = repository != nil && !operationRunning
         guard let repo = repository else { return }
         let count = repo.branchGroups.filter { branchSelection?.contains($0.name) == true || $0.mandatoryPin || branchPins.contains($0.name) }.count
         branches.title = branchSelection == nil ? "All branches ▾" : "\(count) branches (including pins) ▾"
