@@ -11,9 +11,9 @@
   <p><sub>macOS 13+ · Apple Silicon · Native AppKit · MIT licensed</sub></p>
 </div>
 
-<a href="docs/screenshots/branch-actions.png"><img src="docs/screenshots/branch-actions.png" width="1440" alt="GitGraph Lite showing a complex five-branch history with merges, tags, worktrees, a visual diff and the action menu for feature/search"></a>
+<a href="docs/screenshots/branch-actions.png"><img src="docs/screenshots/presentation/overview.png" width="1440" alt="GitGraph Lite showing a complex five-branch history with merges, tags, worktrees, a visual diff and the action menu for feature/search"></a>
 
-<p align="center"><sub>A real app capture with the fictional Atlas sample repository. Click any image to view it full size.</sub></p>
+<p align="center"><sub>Real app. Sample data. Select a visual to open its original full-size capture.</sub></p>
 
 ## Worktrees: the foundation of parallel AI coding
 
@@ -27,23 +27,25 @@ GitGraph Lite puts worktree management at the centre of that workflow:
 
 GitGraph Lite manages the Git side of the workflow alongside your AI tools; you run the agents in their respective folders.
 
+## Explore the workflow
+
+<p align="center">
+  <a href="docs/screenshots/worktrees.png" title="Open the full worktree manager capture"><img src="docs/screenshots/presentation/worktrees.png" width="420" alt="One task, one workspace: worktree manager in a turquoise-accented card"></a> &emsp;
+  <a href="docs/screenshots/branch-picker.png" title="Open the full branch picker capture"><img src="docs/screenshots/presentation/branches.png" width="420" alt="Choose your focus: local and origin branches, pins and worktrees in a violet-accented card"></a>
+</p>
+<p align="center">
+  <a href="docs/screenshots/diff-side-by-side.png" title="Open the full side-by-side diff capture"><img src="docs/screenshots/presentation/side-by-side.png" width="420" alt="See exactly what changed: enlarged detail of the real side-by-side diff"></a> &emsp;
+  <a href="docs/screenshots/diff-unified.png" title="Open the full unified diff capture"><img src="docs/screenshots/presentation/unified.png" width="420" alt="One patch, every detail: enlarged detail of the real unified diff in dark mode"></a>
+</p>
+
+<p align="center"><sub>Worktrees · Branches &amp; pins · Side-by-side review · Unified diff<br>Select a card for the original capture. <a href="docs/screenshots/README.md">About the screenshots</a></sub></p>
+
 ## Your history, without the clutter
 
 - **Follow every branch.** Trace merges across a coloured graph. See local branches, origin refs, tags and worktrees in context.
 - **Understand the change.** Inspect side-by-side or unified diffs with line numbers and word highlights. Browse changed files as a folder tree, or compare two commits with ⌘-click.
 - **Act on exactly what you click.** Short menus for commits, branches, tags and worktrees. Push one branch, publish one tag, or pull into the selected branch's workspace with fast-forward protection.
 - **Make room for what matters.** Filter several branches, pin the important ones and fold long commit chains. The graph refreshes after changes made in your other Git tools.
-
-## Take a closer look
-
-<p align="center">
-  <a href="docs/screenshots/diff-side-by-side.png" title="Side-by-side diffs"><img src="docs/screenshots/diff-side-by-side.png" width="190" alt="Side-by-side diff with word highlights and a changed-file tree"></a>
-  <a href="docs/screenshots/diff-unified.png" title="Unified diff · dark mode"><img src="docs/screenshots/diff-unified.png" width="190" alt="Unified diff in dark mode with old and new line numbers"></a>
-  <a href="docs/screenshots/branch-picker.png" title="Branches and pins"><img src="docs/screenshots/branch-picker.png" width="190" alt="Multi-branch picker with local and origin refs, branch pins and workspace state"></a>
-  <a href="docs/screenshots/worktrees.png" title="Worktrees for parallel AI tasks"><img src="docs/screenshots/worktrees.png" width="190" alt="Worktree manager with three dedicated workspaces, their branches, paths and clean or modified state"></a>
-</p>
-
-<p align="center"><sub>Side-by-side diffs · Unified in dark mode · Branches &amp; pins · Parallel worktrees</sub></p>
 
 ## Get started
 
