@@ -72,7 +72,7 @@ The clicked item determines the entire menu, including when several refs point t
 | --- | --- |
 | Commit | Add Tag…, Create Branch… · Cherry Pick… · Copy Hash, Copy Short Hash, Copy Subject |
 | Branch | Open, Push to origin, Pull from origin, Rename, Merge into the explicitly named current branch, Copy Branch Name |
-| Tag | Delete Local Tag, Publish on origin, Copy Tag Name |
+| Tag | Delete Tag, Push, Copy Name |
 | Worktree | Open, Show in Finder, Copy Worktree Path, Delete Worktree |
 
 ### Action popups
@@ -89,7 +89,7 @@ The short hash is ten characters, matching the history column. Worktree paths ar
 
 **Rename** changes a local branch and its repository-private workspace association together, including when the branch occupies the current or another workspace. The folder, commits and local edits are preserved. The metadata update is locked; a failed metadata write attempts to roll back the rename. Conflicting/external associations or pending operations are rejected. Pins and branch selection follow an app-initiated rename.
 
-**Delete Local Tag** leaves the remote tag intact. **Delete Worktree** keeps the local branch and refuses main, active, dirty, locked or inconsistent worktrees. Network actions require origin; no other remote is selected implicitly.
+**Delete Tag** asks nothing: it deletes the tag on every configured remote that has it, then locally, and its popup lists where it was deleted. If a remote cannot be reached, the local tag is kept so the deletion can be retried. **Push** publishes the tag on every configured remote, without force; a remote holding a different tag of the same name rejects it and the popup says which remotes already received it. **Copy Name** shows the copied name. **Delete Worktree** keeps the local branch and refuses main, active, dirty, locked or inconsistent worktrees. Network actions require origin; no other remote is selected implicitly.
 
 Merge and cherry-pick require a clean current workspace. **Merge** always creates a merge commit (`--no-ff`), with no mode to choose. A merge commit's mainline parent is selected explicitly for cherry-pick. When a cherry-pick or merge stops on conflicts, its popup says so in one line and offers **Abort** and **Continue**; the copy button copies Git's full message. **File → Continue Git Operation / Abort Git Operation** remains available. Comparing exactly two commits remains available with ⌘-click. Legacy reset/revert/rebase/drop implementations remain covered by core regression checks but are no longer exposed in the compact item menus.
 

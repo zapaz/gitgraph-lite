@@ -94,11 +94,20 @@ extension Controller {
     func tagMenu(reference: String, repo: Repository) -> NSMenu? {
         guard let ref = repo.references.first(where: { $0.name == reference && $0.isTag }) else { return nil }
         let menu = ItemMenuBuilder(kind: .tag, usage: actionUsage)
-        menu.add("Delete Local Tag…", id: .deleteTag, enabled: canEditCurrent(repo)) { [weak self] in
-            self?.confirmAction("Delete Local Tag", detail: "Delete only \(ref.shortName) in this clone. The remote tag is kept.", repo: repo, action: .deleteTag(ref.shortName), destructive: true)
+        // No confirmation: the popup shows progress and where the tag was deleted.
+        menu.add("Delete Tag", id: .deleteTag, enabled: !loading && !operationRunning) { [weak self] in
+            self?.actionPopup("Delete Tag", facts: [.init(label: "Tag", value: ref.shortName)], running: "Deleting tag", git: repo) {
+                let result = try Git.performItem(.deleteTagEverywhere(ref.shortName), at: repo.path, expectedSignature: repo.signature)
+                return (result.output, nil, "")
+            }
         }
-        menu.add("Publish on origin", id: .pushTag, enabled: !loading && !operationRunning) { [weak self] in self?.executeItemAction(.pushTag(ref.shortName), repo: repo, title: "Publish Tag " + ref.shortName) }
-        menu.add("Copy Tag Name", id: .copyTagName) { [weak self] in self?.copyText(ref.shortName) }
+        menu.add("Push", id: .pushTag, enabled: !loading && !operationRunning) { [weak self] in
+            self?.actionPopup("Push Tag", facts: [.init(label: "Tag", value: ref.shortName)], running: "Pushing tag", git: repo) {
+                let result = try Git.performItem(.pushTagEverywhere(ref.shortName), at: repo.path, expectedSignature: repo.signature)
+                return (result.output, nil, "")
+            }
+        }
+        menu.add("Copy Name", id: .copyTagName) { [weak self] in self?.copyPopup("Tag", ref.shortName) }
         return menu.finish()
     }
     func worktreeMenu(_ tree: GitWorktree, repo: Repository) -> NSMenu {

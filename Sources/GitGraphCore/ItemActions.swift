@@ -2,6 +2,10 @@ import Foundation
 
 public enum RepositoryItemAction {
     case pushBranch(String), pullBranch(String), pushTag(String)
+    /// Deletes the tag on every remote that has it, then locally. No remote is skipped or chosen by the user.
+    case deleteTagEverywhere(String)
+    /// Publishes the tag on every configured remote, without force.
+    case pushTagEverywhere(String)
     case renameBranch(old: String, new: String)
 }
 
@@ -22,6 +26,10 @@ extension Git {
             let ref = "refs/tags/" + name
             _ = try run(["check-ref-format", ref], at: path)
             output = try pushReference(ref, at: path)
+        case .deleteTagEverywhere(let name):
+            output = try deleteTagEverywhere(name, at: path)
+        case .pushTagEverywhere(let name):
+            output = try pushTagEverywhere(name, at: path)
         case .pullBranch(let name):
             try validateBranch(name, at: path); try requireOrigin(at: path)
             let reference = "refs/heads/" + name
@@ -65,6 +73,46 @@ extension Git {
         let assigned = worktrees.filter { $0.assignedBranch == reference || $0.branch == reference }
         guard assigned.count == 1, let tree = assigned.first else { return false }
         return tree.associationIssue != nil && tree.branch != nil && tree.branch != reference
+    }
+    /// Remotes first, so a remote that cannot be reached leaves the local tag in place for a retry.
+    private static func deleteTagEverywhere(_ name: String, at path: String) throws -> String {
+        let reference = "refs/tags/" + name
+        _ = try run(["check-ref-format", reference], at: path)
+        _ = try string(["show-ref", "--verify", "--hash", reference], at: path)
+        let remotes = try string(["remote"], at: path).split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        var deleted: [String] = []
+        for remote in remotes {
+            do {
+                let found = try string(["ls-remote", "--tags", "--refs", "--", remote, reference], at: path)
+                guard !found.isEmpty else { continue }
+                _ = try run(["-c", "push.followTags=false", "-c", "remote.\(remote).mirror=false", "-c", "push.recurseSubmodules=no", "push", "--porcelain", "--", remote, ":" + reference], at: path)
+                deleted.append(remote)
+            } catch {
+                let done = deleted.isEmpty ? "" : " Already deleted on " + deleted.joined(separator: ", ") + "."
+                throw GitError(message: "Could not delete the tag on \(remote).\(done) The local tag is kept.\n\n" + error.localizedDescription)
+            }
+        }
+        _ = try run(["tag", "-d", "--", name], at: path)
+        return deleted.isEmpty ? "Deleted locally. No remote had this tag." : "Deleted locally and on " + deleted.joined(separator: ", ") + "."
+    }
+    /// Never forced: a remote holding a different tag of the same name rejects the push and stops it.
+    private static func pushTagEverywhere(_ name: String, at path: String) throws -> String {
+        let reference = "refs/tags/" + name
+        _ = try run(["check-ref-format", reference], at: path)
+        let object = try string(["show-ref", "--verify", "--hash", reference], at: path)
+        let remotes = try string(["remote"], at: path).split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        guard !remotes.isEmpty else { throw GitError(message: "Add a remote before pushing this tag.") }
+        var pushed: [String] = []
+        for remote in remotes {
+            do {
+                _ = try run(["-c", "push.followTags=false", "-c", "remote.\(remote).mirror=false", "-c", "push.recurseSubmodules=no", "push", "--porcelain", "--", remote, object + ":" + reference], at: path)
+                pushed.append(remote)
+            } catch {
+                let done = pushed.isEmpty ? "" : " Already pushed to " + pushed.joined(separator: ", ") + "."
+                throw GitError(message: "Could not push the tag to \(remote).\(done)\n\n" + error.localizedDescription)
+            }
+        }
+        return "Pushed to " + pushed.joined(separator: ", ") + "."
     }
     private static func requireOrigin(at path: String) throws {
         guard (try? run(["remote", "get-url", "origin"], at: path)) != nil else {

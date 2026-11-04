@@ -34,6 +34,27 @@ func checkRepositoryItemActions() throws {
     _ = try Git.performItem(.pushTag("release-one"),at:repo.path)
     XCTAssertEqual(try git(["rev-parse","refs/tags/release-one"],at:origin),try git(["rev-parse","refs/tags/release-one"]))
     XCTAssertEqual(try git(["tag","--list"],at:origin),"release-one")
+    // Delete Tag removes it on every remote that has it, then locally, leaving other remotes untouched.
+    let backup = base.appendingPathComponent("backup.git"), spare = base.appendingPathComponent("spare.git")
+    _ = try git(["init","--bare",backup.path]); _ = try git(["init","--bare",spare.path])
+    _ = try git(["remote","add","backup",backup.path]); _ = try git(["remote","add","spare",spare.path])
+    _ = try git(["-c","push.followTags=false","push","backup","refs/tags/release-one","refs/tags/do-not-publish"])
+    _ = try git(["tag","everywhere-tag"]); _ = try git(["-c","push.followTags=false","push","spare","refs/tags/everywhere-tag"])
+    let gone = try Git.performItem(.deleteTagEverywhere("release-one"),at:repo.path)
+    XCTAssertEqual(gone.output,"Deleted locally and on backup, origin.")
+    XCTAssertEqual(try git(["tag","--list"],at:origin),""); XCTAssertEqual(try git(["tag","--list"],at:backup),"do-not-publish")
+    XCTAssertEqual(try git(["tag","--list","release-one"]),""); XCTAssertEqual(try git(["tag","--list"],at:spare),"everywhere-tag")
+    _ = try git(["remote","set-url","spare",base.appendingPathComponent("missing.git").path])
+    fails("local tag is kept") { _ = try Git.performItem(.deleteTagEverywhere("everywhere-tag"),at:repo.path) }
+    XCTAssertEqual(try git(["tag","--list","everywhere-tag"]),"everywhere-tag")
+    // Push sends the tag to every remote, never forcing over a different tag of the same name.
+    _ = try git(["remote","set-url","spare",spare.path]); _ = try git(["tag","pushed-everywhere"])
+    XCTAssertEqual(try Git.performItem(.pushTagEverywhere("pushed-everywhere"),at:repo.path).output,"Pushed to backup, origin, spare.")
+    for remote in [backup, origin, spare] { XCTAssertEqual(try git(["rev-parse","refs/tags/pushed-everywhere"],at:remote),try git(["rev-parse","refs/tags/pushed-everywhere"])) }
+    _ = try git(["tag","-f","pushed-everywhere","HEAD~0^{tree}"]) 
+    fails("could not push the tag to backup") { _ = try Git.performItem(.pushTagEverywhere("pushed-everywhere"),at:repo.path) }
+    _ = try git(["remote","remove","backup"]); _ = try git(["remote","remove","spare"])
+    XCTAssertEqual(try Git.performItem(.deleteTagEverywhere("everywhere-tag"),at:repo.path).output,"Deleted locally. No remote had this tag.")
     let stale = try Git.signature(at:repo.path); _ = try git(["tag","changed"])
     fails("repository changed") { _ = try Git.performItem(.pushTag("changed"),at:repo.path,expectedSignature:stale) }
     _ = try git(["clone",origin.path,producer.path]); try configure(producer)
