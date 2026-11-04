@@ -19,8 +19,8 @@ A local branch can exist without a worktree until you open it. Worktree associat
 Open the prebuilt **GitGraph Lite.app**, or build it from source with the commands below. Then choose **Open Repository…** (⌘O).
 
 - Coloured commit graph with branch and tag labels.
-- Compact 24px history rows with a stronger blue/magenta/green/orange graph palette. Branch badges use the matching lane colour, a coloured icon and an individually outlined label; matching local/remote refs share a badge. Tags appear separately at the right of the description. Full ref names and worktree paths remain available in the row tooltip.
-- Current worktree HEAD has a ring in the graph and a stronger description/branch label. Named worktree badges use a stack icon and each target its own workspace menu.
+- Compact 24px history rows with a stronger blue/magenta/green/orange graph palette. Every branch uses the same branch icon. After the name, a cloud icon appears for each remote at that commit, an outline desktop icon appears when the branch exists locally, and a stack icon appears when a folder is checked out. The repository root, the checkout that contains `.git`, uses that stack icon in bold. Hovering a cloud shows that remote’s name. Hovering the local icon shows “local”. Hovering the stack shows the worktree’s full path. Each icon keeps its own menu. Tags sit at the right of the description. The folder path stays in the row tooltip.
+- Current worktree HEAD has a ring in the graph and a stronger description. A detached worktree appears as a stack icon; hovering it shows its full path.
 - History uses Git's date order so recent commits on parallel branches stay near each other while children remain above their parents. Dates show the committer timestamp in local time, including hours/minutes.
 - Commit message, author, date, and file changes.
 - Select a file for a side-by-side diff with aligned lines, old/new line numbers, line backgrounds and highlighted changed text.
@@ -96,7 +96,7 @@ Merge and cherry-pick retain confirmation dialogs and require a clean current wo
 - Move a clean linked worktree, lock/unlock it, or remove it while preserving its branch. Removing a detached worktree first saves its HEAD to a `gitgraph-backup/worktree-...` branch.
 - Removal refuses main, active, locked, missing or dirty worktrees, pending operations, and any case rejected by Git. No force removal is offered.
 - Branch renaming updates the workspace association without changing its folder or commits. Branch deletion is not offered by the item menus. External duplicate assignments are reported; the app never forces a branch into two worktrees.
-- The graph marks worktree HEADs with blue badges and includes commits reachable only from detached worktree HEADs when showing all branches.
+- The graph shows a checked-out branch with a workspace compartment on its HEAD commit, and includes commits reachable only from detached worktree HEADs when showing all branches.
 - The main window refreshes worktree state automatically; the manager also has a Refresh button. Stale/missing registrations are shown, but pruning and repair remain CLI operations.
 
 ## Scope

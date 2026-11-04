@@ -351,7 +351,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             cell.identifier = id
             let groupID = groupHeaders[row]?.id
             cell.unfoldAction = groupID.map { id in { [weak self] in self?.unfoldGroup(id) } }
-            cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: visibleGraph[row].color, isHead: c.id == activeHead, foldedCount: groupHeaders[row]?.hiddenCount ?? 0)
+            cell.configure(c, labels: labelsByCommit[c.id] ?? [], worktrees: (repository?.worktrees ?? []).filter { $0.head == c.id }, color: visibleGraph[row].color, isHead: c.id == activeHead, activePath: repository?.path, foldedCount: groupHeaders[row]?.hiddenCount ?? 0)
             return cell
         default:
             let label = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")

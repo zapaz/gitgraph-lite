@@ -25,8 +25,16 @@ public struct ReferenceLabel: Equatable {
             matching.forEach { used.insert($0.name) }
             labels.append(ReferenceLabel(kind: .branch, name: local.shortName, remotes: matching.compactMap { $0.shortName.split(separator: "/").first.map(String.init) }, fullNames: [local.name] + matching.map(\.name), isCurrent: local.shortName == currentBranch))
         }
-        for remote in refs.filter({ $0.name.hasPrefix("refs/remotes/") && !used.contains($0.name) }).sorted(by: { $0.name < $1.name }) {
-            labels.append(ReferenceLabel(kind: .remote, name: remote.shortName, remotes: [], fullNames: [remote.name], isCurrent: false))
+        let unmatched = refs.filter { $0.name.hasPrefix("refs/remotes/") && !used.contains($0.name) }.sorted { $0.name < $1.name }
+        let grouped = Dictionary(grouping: unmatched) { remote -> String in
+            let short = remote.shortName
+            guard let slash = short.firstIndex(of: "/") else { return short }
+            return String(short[short.index(after: slash)...])
+        }
+        for branchName in grouped.keys.sorted() {
+            let matching = grouped[branchName]!.sorted { $0.name < $1.name }
+            let remoteNames = matching.compactMap { $0.shortName.split(separator: "/").first.map(String.init) }
+            labels.append(ReferenceLabel(kind: .remote, name: branchName, remotes: remoteNames, fullNames: matching.map(\.name), isCurrent: false))
         }
         for tag in refs.filter(\.isTag).sorted(by: { $0.name < $1.name }) {
             labels.append(ReferenceLabel(kind: .tag, name: tag.shortName, remotes: [], fullNames: [tag.name], isCurrent: false))
