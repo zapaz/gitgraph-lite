@@ -159,3 +159,43 @@ private func checkPullWithSwitchedWorkspace() throws {
     XCTAssertEqual(try git(["rev-parse", "refs/heads/main"]), divergent)
     print("PASS: Pull updates remote and unused local main despite a folder switched to prod; preserves dirty files, index, HEAD, worktree list and bindings; rejects divergence and an occupied main")
 }
+
+func checkBranchDeletion() throws {
+    let base = FileManager.default.temporaryDirectory.appendingPathComponent("GitGraphBranchDelete-" + UUID().uuidString)
+    let repo = base.appendingPathComponent("repo"), origin = base.appendingPathComponent("origin.git")
+    try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: base) }
+    func git(_ args: [String], at location: URL? = nil) throws -> String { try Git.string(args, at: (location ?? repo).path) }
+    _ = try git(["init","-b","main"])
+    for (k,v) in [("user.name","Delete Checks"),("user.email","delete@example.invalid"),("commit.gpgsign","false"),("core.hooksPath","/dev/null")] { _ = try git(["config",k,v]) }
+    _ = try git(["commit","--allow-empty","-m","root"])
+    _ = try git(["init","--bare",origin.path]); _ = try git(["remote","add","origin",origin.path])
+    _ = try git(["branch","merged"]); _ = try git(["switch","-c","unmerged"]); _ = try git(["commit","--allow-empty","-m","only here"]); _ = try git(["switch","main"])
+    _ = try git(["push","origin","merged","unmerged"])
+    _ = try Git.performItem(.deleteLocalBranch("merged", force: false), at: repo.path)
+    XCTAssertEqual(try git(["branch","--list","merged"]), "")
+    XCTAssertEqual(try git(["ls-remote","--heads","origin","merged"]).isEmpty, false)
+    var refused = false
+    do { _ = try Git.performItem(.deleteLocalBranch("unmerged", force: false), at: repo.path) } catch { refused = error.localizedDescription.contains("not fully merged") }
+    XCTAssertTrue(refused)
+    _ = try Git.performItem(.deleteLocalBranch("unmerged", force: true), at: repo.path)
+    XCTAssertEqual(try git(["branch","--list","unmerged"]), "")
+    var occupied = false
+    do { _ = try Git.performItem(.deleteLocalBranch("main", force: true), at: repo.path) } catch { occupied = error.localizedDescription.contains("has a worktree") }
+    XCTAssertTrue(occupied)
+    _ = try Git.performItem(.deleteRemoteBranch(remote: "origin", branch: "merged"), at: repo.path)
+    XCTAssertEqual(try git(["ls-remote","--heads","origin","merged"]), "")
+    XCTAssertEqual(try git(["ls-remote","--heads","origin","unmerged"]).isEmpty, false)
+    // Delete Branch on the name: local then origin; unmerged stays refused unless forced.
+    _ = try git(["branch","both"]); _ = try git(["push","origin","both"])
+    XCTAssertEqual(try Git.performItem(.deleteBranchEverywhere("both", force: false), at: repo.path).output, "Deleted locally and on origin.")
+    XCTAssertEqual(try git(["branch","--list","both"]), ""); XCTAssertEqual(try git(["ls-remote","--heads","origin","both"]), "")
+    _ = try git(["switch","-c","risky"]); _ = try git(["commit","--allow-empty","-m","risky"]); _ = try git(["switch","main"]); _ = try git(["push","origin","risky"])
+    var kept = false
+    do { _ = try Git.performItem(.deleteBranchEverywhere("risky", force: false), at: repo.path) } catch { kept = error.localizedDescription.contains("not fully merged") }
+    XCTAssertTrue(kept); XCTAssertEqual(try git(["ls-remote","--heads","origin","risky"]).isEmpty, false)
+    XCTAssertEqual(try Git.performItem(.deleteBranchEverywhere("risky", force: true), at: repo.path).output, "Deleted locally and on origin.")
+    _ = try git(["push","origin","main:only-remote"])
+    XCTAssertEqual(try Git.performItem(.deleteBranchEverywhere("only-remote", force: false), at: repo.path).output, "Deleted on origin.")
+    print("PASS: Delete Branch removes local then origin, keeps both when unmerged unless forced; Delete Local Branch refuses unmerged unless forced and never a branch with a worktree; Delete on Remote removes only that remote branch")
+}

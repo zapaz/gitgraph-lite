@@ -100,10 +100,13 @@ final class CommitCell: NSTableCellView {
     private(set) var foldCounterRect = NSRect.zero
     private var referenceRegions: [(NSRect, ReferenceLabel)] = []
     private var remoteRegions: [(NSRect, String)] = []
+    private var localRegions: [(NSRect, String)] = []
     private var worktreeRegions: [(NSRect, GitWorktree)] = []
     func contextTarget(at point: NSPoint) -> HistoryMenuTarget {
         guard bounds.contains(point) else { return .commit }
         if let tree = worktreeRegions.first(where: { $0.0.contains(point) })?.1 { return .worktree(tree.path) }
+        if let remote = remoteRegions.first(where: { $0.0.contains(point) })?.1 { return .remoteBranch(remote) }
+        if let local = localRegions.first(where: { $0.0.contains(point) })?.1 { return .localBranch(local) }
         if let reference = reference(at: point) { return .reference(reference) }
         return .commit
     }
@@ -130,7 +133,7 @@ final class CommitCell: NSTableCellView {
 
     func configure(_ commit: Commit, labels: [ReferenceLabel], worktrees: [GitWorktree], color: Int, isHead: Bool, activePath: String? = nil, foldedCount: Int = 0) {
         self.commit = commit; self.labels = labels; self.worktrees = worktrees; laneColor = color; self.isHead = isHead; self.activePath = activePath; self.foldedCount = foldedCount
-        referenceRegions.removeAll(keepingCapacity: true); remoteRegions.removeAll(keepingCapacity: true); worktreeRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
+        referenceRegions.removeAll(keepingCapacity: true); remoteRegions.removeAll(keepingCapacity: true); localRegions.removeAll(keepingCapacity: true); worktreeRegions.removeAll(keepingCapacity: true); foldCounterRect = .zero
         toolTip = relationTooltip()
         setAccessibilityElement(true); setAccessibilityRole(.staticText)
         setAccessibilityLabel(accessibilitySummary())
@@ -226,7 +229,7 @@ final class CommitCell: NSTableCellView {
         let font = NSFont.systemFont(ofSize: 10.5, weight: bold ? .semibold : .regular)
         return ceil((text as NSString).size(withAttributes: [.font: font]).width + (remote.isEmpty ? 0 : (remote as NSString).size(withAttributes: [.font: font]).width+9) + 31)
     }
-    /// One pill for every branch: the same branch icon and name, then one cloud per remote, a computer for the local branch, and the worktree icon.
+    /// One pill for every branch: the same branch icon and name, then a computer for the local branch, the worktree icon, and one cloud per remote last.
     private func compoundBadge(_ label: ReferenceLabel, tree: GitWorktree?, color: NSColor, x: CGFloat, maxWidth: CGFloat) -> (width: CGFloat, name: NSRect, workspace: NSRect?)? {
         let bold = label.isCurrent
         let nameFont = NSFont.systemFont(ofSize: 10.5, weight: bold ? .semibold : .regular)
@@ -262,18 +265,10 @@ final class CommitCell: NSTableCellView {
             separator.move(to: NSPoint(x: cursor, y: box.minY+3)); separator.line(to: NSPoint(x: cursor, y: box.maxY-3))
             NSColor.separatorColor.setStroke(); separator.lineWidth = 1; separator.stroke()
         }
-        for (index, ref) in remoteRefs.enumerated() {
-            let chip = NSRect(x: cursor, y: box.minY, width: chipWidth, height: box.height)
-            drawCloud(tint: watermark, in: chip)
-            remoteRegions.append((chip, ref))
-            let remoteName = label.remotes.indices.contains(index) ? label.remotes[index] : ref
-            regionTips.append((chip, remoteName))
-            cursor += chipWidth
-        }
         if localW > 0 {
             let chip = NSRect(x: cursor, y: box.minY, width: localW, height: box.height)
             drawComputer(tint: watermark, in: chip)
-            referenceRegions.append((chip, label))
+            if let local = label.fullNames.first { localRegions.append((chip, local)) }
             regionTips.append((chip, "local"))
             cursor += localW
         }
@@ -282,6 +277,16 @@ final class CommitCell: NSTableCellView {
             drawWorktree(tree, in: chip)
             workspaceRect = chip
             regionTips.append((chip, tree.path))
+            cursor += workspaceW
+        }
+        // Remotes come last: local, then worktree, then one cloud per remote.
+        for (index, ref) in remoteRefs.enumerated() {
+            let chip = NSRect(x: cursor, y: box.minY, width: chipWidth, height: box.height)
+            drawCloud(tint: watermark, in: chip)
+            remoteRegions.append((chip, ref))
+            let remoteName = label.remotes.indices.contains(index) ? label.remotes[index] : ref
+            regionTips.append((chip, remoteName))
+            cursor += chipWidth
         }
         let nameLimit = chips > 0 ? chipsStart : box.maxX
         let nameRect = NSRect(x: box.minX, y: box.minY, width: max(19, nameLimit - box.minX), height: box.height)
@@ -355,7 +360,7 @@ final class CommitCell: NSTableCellView {
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let commit else { return }
-        referenceRegions.removeAll(keepingCapacity: true); remoteRegions.removeAll(keepingCapacity: true); worktreeRegions.removeAll(keepingCapacity: true); regionTips.removeAll(keepingCapacity: true); foldCounterRect = .zero
+        referenceRegions.removeAll(keepingCapacity: true); remoteRegions.removeAll(keepingCapacity: true); localRegions.removeAll(keepingCapacity: true); worktreeRegions.removeAll(keepingCapacity: true); regionTips.removeAll(keepingCapacity: true); foldCounterRect = .zero
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: bounds).addClip()
         let branchColor = palette[laneColor % palette.count]

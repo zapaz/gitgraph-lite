@@ -168,11 +168,18 @@ extension Controller {
             return ("Branch created.", [.init(label: "Branch", value: branch)], "")
         }
     }
+    /// Lite: one required field, prefilled with the current name. Pins and the branch selection follow the rename.
     func renameBranchDialog(_ old: String, repo: Repository) {
         let name = nameField("New branch name", value: old)
-        let alert = inputForm("Rename Branch", detail: "Rename local branch \(old).", controls: [name])
-        alert.beginSheetModal(for: window!) { [weak self] response in
-            if response == .alertSecondButtonReturn { self?.executeItemAction(.renameBranch(old: old, new: name.stringValue), repo: repo, title: "Rename Branch") }
+        actionPopup("Rename Branch", controls: [name], required: [name], confirm: "Rename", focus: name, running: "Renaming", git: repo) {
+            let new = DispatchQueue.main.sync { name.stringValue.trimmingCharacters(in: .whitespaces) }
+            _ = try Git.performItem(.renameBranch(old: old, new: new), at: repo.path, expectedSignature: repo.signature)
+            DispatchQueue.main.sync { [weak self] in
+                guard let self else { return }
+                if self.branchPins.remove(old) != nil || old == "main" || old == "master" { self.branchPins.insert(new); self.saveBranchPins() }
+                if self.branchSelection?.remove(old) != nil { self.branchSelection?.insert(new) }
+            }
+            return ("Branch renamed.", [.init(label: "Branch", value: new)], "")
         }
     }
     func mainlineDialog(_ commit: Commit, repo: Repository, revert: Bool) {

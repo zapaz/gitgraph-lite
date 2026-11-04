@@ -1,9 +1,12 @@
 import AppKit
 import GitGraphCore
 
+/// The name of a branch or tag targets `reference`; the computer and cloud icons of a branch badge have their own menus.
 enum HistoryMenuTarget: Equatable {
     case commit
     case reference(String)
+    case localBranch(String)
+    case remoteBranch(String)
     case worktree(String)
 }
 
@@ -44,6 +47,8 @@ extension Controller {
         case .reference(let ref):
             if ref.hasPrefix("refs/tags/") { return tagMenu(reference: ref, repo: repo) }
             return branchMenu(reference: ref, repo: repo)
+        case .localBranch(let ref): return localBranchMenu(reference: ref, repo: repo)
+        case .remoteBranch(let ref): return remoteBranchMenu(reference: ref, repo: repo)
         case .worktree(let path):
             guard let tree = repo.worktrees.first(where: { $0.path == path }) else { return nil }
             return worktreeMenu(tree, repo: repo)
@@ -66,29 +71,98 @@ extension Controller {
         menu.add("Copy Subject", id: .copySubject) { [weak self] in self?.copyPopup("Subject", commit.subject) }
         return menu.finish()
     }
-    func branchMenu(reference: String, repo: Repository) -> NSMenu? {
+    private func branchContext(_ reference: String, repo: Repository) -> (ref: GitReference, name: String, tree: GitWorktree?, isCurrent: Bool, ready: Bool)? {
         guard let ref = repo.references.first(where: { $0.name == reference && !$0.symbolic }),
               let group = repo.branchGroups.first(where: { $0.references.contains(reference) }) else { return nil }
-        let menu = ItemMenuBuilder(kind: .branch, usage: actionUsage)
-        let name = group.name, local = ref.isBranch
+        let name = group.name
         let tree = repo.worktrees.first { $0.assignedBranch == "refs/heads/" + name || $0.branch == "refs/heads/" + name }
-        let ready = !loading && !operationRunning
-        let available = tree == nil || tree!.exists && tree!.associationIssue == nil && !tree!.isBare
         let isCurrent = tree.map { Git.samePath($0.path, repo.path) } ?? false
-        let origin = ref.isBranch || ref.name.hasPrefix("refs/remotes/origin/")
-        menu.add("Open", id: .checkout, enabled: ready && available && !isCurrent) { [weak self] in
-            if local { self?.openLocalWorkspace(name, repo: repo) } else { self?.openRemoteWorkspace(ref.name, repo: repo) }
-        }.toolTip = "Reuse this branch’s workspace, or create it automatically. Never switch an existing workspace’s branch."
-        menu.add("Push to origin", id: .pushBranch, enabled: ready && local) { [weak self] in self?.executeItemAction(.pushBranch(name), repo: repo, title: "Push " + name) }
-        let referenceOnlyPull = group.localReference != nil && Git.canPullWithoutEditingWorkspace(name, worktrees: repo.worktrees)
-        menu.add("Pull from origin", id: .pullBranch, enabled: ready && origin && (referenceOnlyPull || available && (tree == nil || tree?.changedFiles == 0))) { [weak self] in self?.executeItemAction(.pullBranch(name), repo: repo, title: "Pull " + name) }
-            .toolTip = referenceOnlyPull
-                ? "Update origin/\(name) and fast-forward local \(name) without touching the workspace currently on another branch."
-                : "Fetch only origin/\(name) and fast-forward its dedicated workspace; diverged history is left unchanged."
-        menu.add("Rename…", id: .renameBranch, enabled: ready && local && available) { [weak self] in self?.renameBranchDialog(name, repo: repo) }
+        return (ref, name, tree, isCurrent, !loading && !operationRunning)
+    }
+    /// The branch itself: Create Worktree, Merge into Current, Rename, Delete Branch (local and origin), Copy Name.
+    func branchMenu(reference: String, repo: Repository) -> NSMenu? {
+        guard let (ref, name, tree, isCurrent, ready) = branchContext(reference, repo: repo) else { return nil }
+        let menu = ItemMenuBuilder(kind: .branch, usage: actionUsage, fixedOrder: true)
+        let local = ref.isBranch
+        menu.add("Create Worktree", id: .createWorktree, enabled: ready && tree == nil) { [weak self] in
+            self?.actionPopup("Create Worktree", facts: [.init(label: "Branch", value: name)], running: "Creating worktree", git: repo) {
+                let made = local ? try Git.openLocalBranch(name, at: repo.path, expectedSignature: repo.signature) : try Git.openRemoteBranch(ref.name, at: repo.path, expectedSignature: repo.signature)
+                return ("Worktree created.", [.init(label: "Branch", value: made.branch), .init(label: "Folder", value: made.path)], "")
+            }
+        }
         let commit = Commit(id: ref.target, parents: [], subject: name)
-        menu.add("Merge into \(repo.branch)…", id: .merge, enabled: canEditCurrent(repo) && ref.target != activeHead) { [weak self] in self?.mergeDialog(commit, repo: repo) }
-        menu.add("Copy Branch Name", id: .copyBranchName) { [weak self] in self?.copyText(ref.shortName) }
+        menu.add("Merge into Current", id: .merge, enabled: canEditCurrent(repo) && !isCurrent && ref.target != activeHead) { [weak self] in self?.mergeDialog(commit, repo: repo) }
+        menu.addSeparator()
+        let available = tree == nil || tree!.exists && tree!.associationIssue == nil && !tree!.isBare
+        menu.add("Rename…", id: .renameBranch, enabled: ready && local && available) { [weak self] in self?.renameBranchDialog(name, repo: repo) }
+        // Local and origin together. It reaches a shared remote, so the popup asks first.
+        let onOrigin = repo.references.contains { $0.name == "refs/remotes/origin/" + name }
+        let hasLocal = repo.references.contains { $0.name == "refs/heads/" + name }
+        menu.add("Delete Branch", id: .deleteBranchEverywhere, enabled: ready && tree == nil && !isCurrent && (hasLocal || onOrigin)) { [weak self] in
+            let places = [hasLocal ? "local" : nil, onOrigin ? "origin" : nil].compactMap { $0 }.joined(separator: " + ")
+            self?.actionPopup("Delete Branch", facts: [.init(label: "Branch", value: name), .init(label: "From", value: places)], confirm: "Delete", running: "Deleting branch", git: repo,
+                fallback: PopupFallback(title: "Delete Anyway", when: { $0.contains("not fully merged") }) {
+                    (try Git.performItem(.deleteBranchEverywhere(name, force: true), at: repo.path).output, nil, "")
+                }) {
+                    (try Git.performItem(.deleteBranchEverywhere(name, force: false), at: repo.path, expectedSignature: repo.signature).output, nil, "")
+                }
+        }
+        menu.addSeparator()
+        menu.add("Copy Name", id: .copyBranchName) { [weak self] in self?.copyPopup("Branch", ref.shortName) }
+        return menu.finish()
+    }
+    /// The local branch: Push (only while origin is not at the same commit), Delete Local Branch, Copy Name.
+    func localBranchMenu(reference: String, repo: Repository) -> NSMenu? {
+        guard let (ref, name, tree, isCurrent, ready) = branchContext(reference, repo: repo), ref.isBranch else { return nil }
+        let menu = ItemMenuBuilder(kind: .branch, usage: actionUsage, fixedOrder: true)
+        let synced = repo.references.contains { $0.name == "refs/remotes/origin/" + name && $0.target == ref.target }
+        menu.add("Push", id: .pushBranch, enabled: ready && !synced) { [weak self] in
+            self?.actionPopup("Push", facts: [.init(label: "Branch", value: name), .init(label: "To", value: "origin")], running: "Pushing", git: repo) {
+                let result = try Git.performItem(.pushBranch(name), at: repo.path, expectedSignature: repo.signature)
+                return ("Pushed to origin.", nil, result.output)
+            }
+        }
+        menu.addSeparator()
+        menu.add("Delete Local Branch", id: .deleteBranch, enabled: ready && tree == nil && !isCurrent) { [weak self] in
+            // No confirmation: Git refuses an unmerged branch, and the popup then offers Delete Anyway.
+            self?.actionPopup("Delete Local Branch", facts: [.init(label: "Branch", value: name)], confirm: "Delete", running: "Deleting branch", git: repo,
+                fallback: PopupFallback(title: "Delete Anyway", when: { $0.contains("not fully merged") }) {
+                    _ = try Git.performItem(.deleteLocalBranch(name, force: true), at: repo.path)
+                    return ("Local branch deleted.", nil, "")
+                }) {
+                    let result = try Git.performItem(.deleteLocalBranch(name, force: false), at: repo.path, expectedSignature: repo.signature)
+                    return (result.output, nil, "")
+                }
+        }
+        menu.addSeparator()
+        menu.add("Copy Name", id: .copyBranchName) { [weak self] in self?.copyPopup("Branch", name) }
+        return menu.finish()
+    }
+    /// The branch on one remote: Pull (only while the local branch is not at the same commit), Delete on Remote, Copy Name.
+    func remoteBranchMenu(reference: String, repo: Repository) -> NSMenu? {
+        guard let (ref, name, tree, _, ready) = branchContext(reference, repo: repo), ref.name.hasPrefix("refs/remotes/") else { return nil }
+        let remote = String(ref.shortName.prefix { $0 != "/" })
+        let menu = ItemMenuBuilder(kind: .branch, usage: actionUsage, fixedOrder: true)
+        let localRef = repo.references.first { $0.name == "refs/heads/" + name }
+        let available = tree == nil || tree!.exists && tree!.associationIssue == nil && !tree!.isBare
+        let referenceOnlyPull = localRef != nil && Git.canPullWithoutEditingWorkspace(name, worktrees: repo.worktrees)
+        let canPull = remote == "origin" && localRef?.target != ref.target && (referenceOnlyPull || available && (tree == nil || tree?.changedFiles == 0))
+        menu.add("Pull", id: .pullBranch, enabled: ready && canPull) { [weak self] in
+            self?.actionPopup("Pull", facts: [.init(label: "Branch", value: name), .init(label: "From", value: remote)], running: "Pulling", git: repo) {
+                let result = try Git.performItem(.pullBranch(name), at: repo.path, expectedSignature: repo.signature)
+                return ("Pulled from \(remote).", nil, result.output)
+            }
+        }.toolTip = remote == "origin" ? nil : "Pull works with origin only."
+        menu.addSeparator()
+        // A shared remote branch may hold other people's work: the popup asks before deleting it.
+        menu.add("Delete on Remote", id: .deleteRemoteBranch, enabled: ready) { [weak self] in
+            self?.actionPopup("Delete on Remote", facts: [.init(label: "Branch", value: ref.shortName)], confirm: "Delete", running: "Deleting on \(remote)", git: repo) {
+                let result = try Git.performItem(.deleteRemoteBranch(remote: remote, branch: name), at: repo.path, expectedSignature: repo.signature)
+                return (result.output, nil, "")
+            }
+        }
+        menu.addSeparator()
+        menu.add("Copy Name", id: .copyBranchName) { [weak self] in self?.copyPopup("Branch", ref.shortName) }
         return menu.finish()
     }
     func tagMenu(reference: String, repo: Repository) -> NSMenu? {
@@ -96,7 +170,7 @@ extension Controller {
         let menu = ItemMenuBuilder(kind: .tag, usage: actionUsage)
         // No confirmation: the popup shows progress and where the tag was deleted.
         menu.add("Delete Tag", id: .deleteTag, enabled: !loading && !operationRunning) { [weak self] in
-            self?.actionPopup("Delete Tag", facts: [.init(label: "Tag", value: ref.shortName)], running: "Deleting tag", git: repo) {
+            self?.actionPopup("Delete Tag", facts: [.init(label: "Tag", value: ref.shortName)], confirm: "Delete", running: "Deleting tag", git: repo) {
                 let result = try Git.performItem(.deleteTagEverywhere(ref.shortName), at: repo.path, expectedSignature: repo.signature)
                 return (result.output, nil, "")
             }

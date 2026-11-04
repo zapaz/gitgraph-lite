@@ -6,6 +6,11 @@ public enum RepositoryItemAction {
     case deleteTagEverywhere(String)
     /// Publishes the tag on every configured remote, without force.
     case pushTagEverywhere(String)
+    /// Without force, Git refuses a branch that is not merged; with force it is deleted anyway. A branch with a worktree is always refused.
+    case deleteLocalBranch(String, force: Bool)
+    case deleteRemoteBranch(remote: String, branch: String)
+    /// The local branch first (refused if unmerged unless forced, or if it has a worktree), then the same branch on origin when it exists there.
+    case deleteBranchEverywhere(String, force: Bool)
     case renameBranch(old: String, new: String)
 }
 
@@ -30,6 +35,37 @@ extension Git {
             output = try deleteTagEverywhere(name, at: path)
         case .pushTagEverywhere(let name):
             output = try pushTagEverywhere(name, at: path)
+        case .deleteLocalBranch(let name, let force):
+            try validateBranch(name, at: path)
+            let reference = "refs/heads/" + name
+            if let tree = try worktrees(at: path).first(where: { $0.branch == reference || $0.assignedBranch == reference }) {
+                throw GitError(message: "This branch has a worktree: \(tree.path). Delete the worktree first.")
+            }
+            _ = try run(["branch", force ? "-D" : "-d", "--", name], at: path)
+            output = "Local branch deleted."
+        case .deleteBranchEverywhere(let name, let force):
+            try validateBranch(name, at: path)
+            var done: [String] = []
+            if (try? run(["show-ref", "--verify", "--quiet", "refs/heads/" + name], at: path)) != nil {
+                _ = try performItem(.deleteLocalBranch(name, force: force), at: path)
+                done.append("locally")
+            }
+            var onOrigin = false
+            if (try? run(["remote", "get-url", "origin"], at: path)) != nil {
+                onOrigin = !(try string(["ls-remote", "--heads", "--", "origin", "refs/heads/" + name], at: path)).isEmpty
+            }
+            if onOrigin {
+                do { _ = try performItem(.deleteRemoteBranch(remote: "origin", branch: name), at: path) }
+                catch { throw GitError(message: (done.isEmpty ? "" : "Deleted locally, but not on origin.\n\n") + error.localizedDescription) }
+                done.append("on origin")
+            }
+            guard !done.isEmpty else { throw GitError(message: "This branch no longer exists locally or on origin.") }
+            output = "Deleted " + done.joined(separator: " and ") + "."
+        case .deleteRemoteBranch(let remote, let name):
+            try validateBranch(name, at: path)
+            guard try string(["remote"], at: path).split(separator: "\n").contains(Substring(remote)) else { throw GitError(message: "Unknown remote: " + remote) }
+            _ = try run(["-c", "push.followTags=false", "-c", "remote.\(remote).mirror=false", "-c", "push.recurseSubmodules=no", "push", "--porcelain", "--", remote, ":refs/heads/" + name], at: path)
+            output = "Deleted on \(remote)."
         case .pullBranch(let name):
             try validateBranch(name, at: path); try requireOrigin(at: path)
             let reference = "refs/heads/" + name

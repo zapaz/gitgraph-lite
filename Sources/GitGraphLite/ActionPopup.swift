@@ -201,16 +201,20 @@ final class ActionPopup: NSObject {
     }
 }
 
+typealias PopupWork = () throws -> (message: String, facts: [ActionPopup.Fact]?, output: String)
+/// A second way to finish when the first one fails with a matching error, such as Delete Anyway.
+struct PopupFallback { let title: String; let when: (String) -> Bool; let work: PopupWork }
+
 extension Controller {
     /// Runs `work` behind a popup. With `confirm`, the popup first asks for input; without, it runs at once.
     /// Git work runs off the main thread and refreshes the graph; quick local work (a copy) stays on the main thread.
-    @discardableResult func actionPopup(_ title: String, detail: String = "", facts: [ActionPopup.Fact] = [], controls: [NSView] = [], required: [NSTextField] = [], confirm: String? = nil, focus: NSView? = nil, running: String? = nil, git repo: Repository? = nil, work: @escaping () throws -> (message: String, facts: [ActionPopup.Fact]?, output: String)) -> ActionPopup {
+    @discardableResult func actionPopup(_ title: String, detail: String = "", facts: [ActionPopup.Fact] = [], controls: [NSView] = [], required: [NSTextField] = [], confirm: String? = nil, focus: NSView? = nil, running: String? = nil, git repo: Repository? = nil, fallback: PopupFallback? = nil, work: @escaping PopupWork) -> ActionPopup {
         let popup = ActionPopup(title: title, detail: detail, facts: facts, controls: controls, required: required, parent: window)
         popup.copy = { [weak self] in self?.copyText($0) }
         var back: (() -> Void)?
         let start = { [weak self, weak popup] in
             guard let self, let popup else { return }
-            self.runPopupWork(popup, running: running ?? title, repo: repo, back: back, work: work)
+            self.runPopupWork(popup, running: running ?? title, repo: repo, back: back, fallback: fallback, work: work)
         }
         if let confirm {
             back = { [weak popup] in popup?.askInput(confirm: confirm, focus: focus, action: start) }
@@ -218,7 +222,7 @@ extension Controller {
         } else { start() }
         return popup
     }
-    private func runPopupWork(_ popup: ActionPopup, running: String, repo: Repository?, back: (() -> Void)?, work: @escaping () throws -> (message: String, facts: [ActionPopup.Fact]?, output: String)) {
+    private func runPopupWork(_ popup: ActionPopup, running: String, repo: Repository?, back: (() -> Void)?, fallback: PopupFallback? = nil, work: @escaping PopupWork) {
         guard let repo else {
             switch Result(catching: work) {
             case .success(let done): popup.showSuccess(done.message, facts: done.facts, output: done.output)
@@ -243,8 +247,15 @@ extension Controller {
                 switch result {
                 case .success(let done): popup.showSuccess(done.message, facts: done.facts, output: done.output)
                 case .failure(let error):
-                    if let pending { self.showConflict(popup, operation: pending, repo: repo, error: error.localizedDescription) }
-                    else { popup.showFailure(error.localizedDescription, back: back) }
+                    let text = error.localizedDescription
+                    if let pending { self.showConflict(popup, operation: pending, repo: repo, error: text) }
+                    else if let fallback, fallback.when(text) {
+                        popup.showFailure(text, actions: [(fallback.title, { [weak self, weak popup] in
+                            guard let self, let popup else { return }
+                            self.runPopupWork(popup, running: fallback.title, repo: repo, back: nil, work: fallback.work)
+                        })])
+                    }
+                    else { popup.showFailure(text, back: back) }
                 }
             }
         }
