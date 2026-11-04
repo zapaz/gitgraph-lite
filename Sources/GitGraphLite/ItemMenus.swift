@@ -16,24 +16,33 @@ final class ItemMenuBuilder {
     let usage: ActionUsage
     /// A fixed menu keeps the order it was built in, with its separators, instead of ranking items by use.
     let fixedOrder: Bool
-    private var ids: [CommitActionID] = []
-    private var items: [CommitActionID: NSMenuItem] = [:]
-    private var separatorsBefore = Set<CommitActionID>()
+    private var entries: [(id: CommitActionID?, item: NSMenuItem, gap: Bool)] = []
     private var pendingSeparator = false
     init(kind: ActionItemKind, usage: ActionUsage, fixedOrder: Bool = false) { self.kind = kind; self.usage = usage; self.fixedOrder = fixedOrder; menu.autoenablesItems = false }
-    func addSeparator() { if !ids.isEmpty { pendingSeparator = true } }
+    func addSeparator() { if !entries.isEmpty { pendingSeparator = true } }
     @discardableResult func add(_ title: String, id: CommitActionID, enabled: Bool = true, _ handler: @escaping () -> Void) -> NSMenuItem {
         let command = MenuCommand(id: id, kind: kind, usage: usage, handler: handler)
         let item = NSMenuItem(title: title, action: #selector(MenuCommand.invoke(_:)), keyEquivalent: "")
         item.target = command; item.representedObject = command; item.isEnabled = enabled
         item.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
-        if pendingSeparator { separatorsBefore.insert(id); pendingSeparator = false }
-        ids.append(id); items[id] = item; return item
+        entries.append((id, item, pendingSeparator)); pendingSeparator = false
+        return item
+    }
+    /// A titled submenu, kept in fixed order; it is greyed when none of its items can run.
+    @discardableResult func addSubmenu(_ title: String, _ fill: (ItemMenuBuilder) -> Void) -> NSMenuItem {
+        let child = ItemMenuBuilder(kind: kind, usage: usage, fixedOrder: true); fill(child)
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: ""); item.submenu = child.finish()
+        item.isEnabled = item.submenu!.items.contains { $0.isEnabled && !$0.isSeparatorItem }
+        entries.append((nil, item, pendingSeparator)); pendingSeparator = false
+        return item
     }
     func finish() -> NSMenu {
-        for id in fixedOrder ? ids : usage.ranked(ids, kind: kind) {
-            if fixedOrder, separatorsBefore.contains(id) { menu.addItem(.separator()) }
-            menu.addItem(items[id]!)
+        if fixedOrder {
+            for entry in entries { if entry.gap { menu.addItem(.separator()) }; menu.addItem(entry.item) }
+        } else {
+            var byID: [CommitActionID: NSMenuItem] = [:]
+            for entry in entries { if let id = entry.id { byID[id] = entry.item } }
+            for id in usage.ranked(entries.compactMap(\.id), kind: kind) { menu.addItem(byID[id]!) }
         }
         return menu
     }
@@ -47,10 +56,10 @@ extension Controller {
         case .reference(let ref):
             if ref.hasPrefix("refs/tags/") { return tagMenu(reference: ref, repo: repo) }
             return branchMenu(reference: ref, repo: repo)
-        case .localBranch(let ref): return localBranchMenu(reference: ref, repo: repo)
-        case .remoteBranch(let ref): return remoteBranchMenu(reference: ref, repo: repo)
+        case .localBranch(let ref), .remoteBranch(let ref): return branchMenu(reference: ref, repo: repo)
         case .worktree(let path):
             guard let tree = repo.worktrees.first(where: { $0.path == path }) else { return nil }
+            if let branch = tree.branch ?? tree.assignedBranch, let menu = branchMenu(reference: branch, repo: repo) { return menu }
             return worktreeMenu(tree, repo: repo)
         }
     }
@@ -79,90 +88,87 @@ extension Controller {
         let isCurrent = tree.map { Git.samePath($0.path, repo.path) } ?? false
         return (ref, name, tree, isCurrent, !loading && !operationRunning)
     }
-    /// The branch itself: Create Worktree, Merge into Current, Rename, Delete Branch (local and origin), Copy Name.
+    /// One menu for every part of a branch badge (name, computer, cloud, worktree icon).
+    /// Open Branch (creating its worktree if needed), merge, sync, rename, a Delete submenu (local + origin, local, remote, worktree), copies.
     func branchMenu(reference: String, repo: Repository) -> NSMenu? {
         guard let (ref, name, tree, isCurrent, ready) = branchContext(reference, repo: repo) else { return nil }
         let menu = ItemMenuBuilder(kind: .branch, usage: actionUsage, fixedOrder: true)
-        let local = ref.isBranch
-        menu.add("Create Worktree", id: .createWorktree, enabled: ready && tree == nil) { [weak self] in
-            self?.actionPopup("Create Worktree", facts: [.init(label: "Branch", value: name)], running: "Creating worktree", git: repo) {
-                let made = local ? try Git.openLocalBranch(name, at: repo.path, expectedSignature: repo.signature) : try Git.openRemoteBranch(ref.name, at: repo.path, expectedSignature: repo.signature)
-                return ("Worktree created.", [.init(label: "Branch", value: made.branch), .init(label: "Folder", value: made.path)], "")
+        let localRef = repo.references.first { $0.name == "refs/heads/" + name }
+        let originRef = repo.references.first { $0.name == "refs/remotes/origin/" + name }
+        // The cloud that was clicked picks the remote for Delete on Remote; otherwise origin.
+        let remote = ref.name.hasPrefix("refs/remotes/") ? String(ref.shortName.prefix { $0 != "/" }) : "origin"
+        let remoteRef = repo.references.first { $0.name == "refs/remotes/\(remote)/" + name }
+        let available = tree == nil || tree!.exists && tree!.associationIssue == nil && !tree!.isBare
+
+        // Every local branch in use lives in its own worktree: Open Branch switches the window to it,
+        // creating the worktree first (in a popup) when the branch has none yet.
+        menu.add("Open Branch", id: .openBranch, enabled: ready && !isCurrent && available) { [weak self] in
+            guard let self, self.repository?.path == repo.path, !self.operationRunning else { return }
+            if let tree { self.open(tree.path, focusHead: true); return }
+            var made: String?
+            self.actionPopup("Open Branch", detail: "No worktree yet: creating one for this branch, then opening it.", facts: [.init(label: "Branch", value: name)], running: "Creating worktree for \(name)", git: repo, then: { [weak self] in
+                if let made { self?.open(made, focusHead: true) }
+            }) {
+                let result = localRef != nil ? try Git.openLocalBranch(name, at: repo.path, expectedSignature: repo.signature)
+                    : try Git.openRemoteBranch((originRef ?? ref).name, at: repo.path, expectedSignature: repo.signature)
+                made = result.path
+                return ("Worktree created, branch opened.", [.init(label: "Branch", value: result.branch), .init(label: "New worktree", value: result.path)], "")
             }
         }
         let commit = Commit(id: ref.target, parents: [], subject: name)
         menu.add("Merge into Current", id: .merge, enabled: canEditCurrent(repo) && !isCurrent && ref.target != activeHead) { [weak self] in self?.mergeDialog(commit, repo: repo) }
         menu.addSeparator()
-        let available = tree == nil || tree!.exists && tree!.associationIssue == nil && !tree!.isBare
-        menu.add("Rename…", id: .renameBranch, enabled: ready && local && available) { [weak self] in self?.renameBranchDialog(name, repo: repo) }
-        // Local and origin together. It reaches a shared remote, so the popup asks first.
-        let onOrigin = repo.references.contains { $0.name == "refs/remotes/origin/" + name }
-        let hasLocal = repo.references.contains { $0.name == "refs/heads/" + name }
-        menu.add("Delete Branch", id: .deleteBranchEverywhere, enabled: ready && tree == nil && !isCurrent && (hasLocal || onOrigin)) { [weak self] in
-            let places = [hasLocal ? "local" : nil, onOrigin ? "origin" : nil].compactMap { $0 }.joined(separator: " + ")
-            self?.actionPopup("Delete Branch", facts: [.init(label: "Branch", value: name), .init(label: "From", value: places)], confirm: "Delete", running: "Deleting branch", git: repo,
-                fallback: PopupFallback(title: "Delete Anyway", when: { $0.contains("not fully merged") }) {
-                    (try Git.performItem(.deleteBranchEverywhere(name, force: true), at: repo.path).output, nil, "")
-                }) {
-                    (try Git.performItem(.deleteBranchEverywhere(name, force: false), at: repo.path, expectedSignature: repo.signature).output, nil, "")
-                }
-        }
-        menu.addSeparator()
-        menu.add("Copy Name", id: .copyBranchName) { [weak self] in self?.copyPopup("Branch", ref.shortName) }
-        return menu.finish()
-    }
-    /// The local branch: Push (only while origin is not at the same commit), Delete Local Branch, Copy Name.
-    func localBranchMenu(reference: String, repo: Repository) -> NSMenu? {
-        guard let (ref, name, tree, isCurrent, ready) = branchContext(reference, repo: repo), ref.isBranch else { return nil }
-        let menu = ItemMenuBuilder(kind: .branch, usage: actionUsage, fixedOrder: true)
-        let synced = repo.references.contains { $0.name == "refs/remotes/origin/" + name && $0.target == ref.target }
-        menu.add("Push", id: .pushBranch, enabled: ready && !synced) { [weak self] in
+
+        menu.add("Push", id: .pushBranch, enabled: ready && localRef != nil && originRef?.target != localRef?.target) { [weak self] in
             self?.actionPopup("Push", facts: [.init(label: "Branch", value: name), .init(label: "To", value: "origin")], running: "Pushing", git: repo) {
                 let result = try Git.performItem(.pushBranch(name), at: repo.path, expectedSignature: repo.signature)
                 return ("Pushed to origin.", nil, result.output)
             }
         }
-        menu.addSeparator()
-        menu.add("Delete Local Branch", id: .deleteBranch, enabled: ready && tree == nil && !isCurrent) { [weak self] in
-            // No confirmation: Git refuses an unmerged branch, and the popup then offers Delete Anyway.
-            self?.actionPopup("Delete Local Branch", facts: [.init(label: "Branch", value: name)], confirm: "Delete", running: "Deleting branch", git: repo,
-                fallback: PopupFallback(title: "Delete Anyway", when: { $0.contains("not fully merged") }) {
-                    _ = try Git.performItem(.deleteLocalBranch(name, force: true), at: repo.path)
-                    return ("Local branch deleted.", nil, "")
-                }) {
-                    let result = try Git.performItem(.deleteLocalBranch(name, force: false), at: repo.path, expectedSignature: repo.signature)
-                    return (result.output, nil, "")
-                }
-        }
-        menu.addSeparator()
-        menu.add("Copy Name", id: .copyBranchName) { [weak self] in self?.copyPopup("Branch", name) }
-        return menu.finish()
-    }
-    /// The branch on one remote: Pull (only while the local branch is not at the same commit), Delete on Remote, Copy Name.
-    func remoteBranchMenu(reference: String, repo: Repository) -> NSMenu? {
-        guard let (ref, name, tree, _, ready) = branchContext(reference, repo: repo), ref.name.hasPrefix("refs/remotes/") else { return nil }
-        let remote = String(ref.shortName.prefix { $0 != "/" })
-        let menu = ItemMenuBuilder(kind: .branch, usage: actionUsage, fixedOrder: true)
-        let localRef = repo.references.first { $0.name == "refs/heads/" + name }
-        let available = tree == nil || tree!.exists && tree!.associationIssue == nil && !tree!.isBare
         let referenceOnlyPull = localRef != nil && Git.canPullWithoutEditingWorkspace(name, worktrees: repo.worktrees)
-        let canPull = remote == "origin" && localRef?.target != ref.target && (referenceOnlyPull || available && (tree == nil || tree?.changedFiles == 0))
+        let canPull = originRef != nil && localRef?.target != originRef?.target && (referenceOnlyPull || available && (tree == nil || tree?.changedFiles == 0))
         menu.add("Pull", id: .pullBranch, enabled: ready && canPull) { [weak self] in
-            self?.actionPopup("Pull", facts: [.init(label: "Branch", value: name), .init(label: "From", value: remote)], running: "Pulling", git: repo) {
+            self?.actionPopup("Pull", facts: [.init(label: "Branch", value: name), .init(label: "From", value: "origin")], running: "Pulling", git: repo) {
                 let result = try Git.performItem(.pullBranch(name), at: repo.path, expectedSignature: repo.signature)
-                return ("Pulled from \(remote).", nil, result.output)
-            }
-        }.toolTip = remote == "origin" ? nil : "Pull works with origin only."
-        menu.addSeparator()
-        // A shared remote branch may hold other people's work: the popup asks before deleting it.
-        menu.add("Delete on Remote", id: .deleteRemoteBranch, enabled: ready) { [weak self] in
-            self?.actionPopup("Delete on Remote", facts: [.init(label: "Branch", value: ref.shortName)], confirm: "Delete", running: "Deleting on \(remote)", git: repo) {
-                let result = try Git.performItem(.deleteRemoteBranch(remote: remote, branch: name), at: repo.path, expectedSignature: repo.signature)
-                return (result.output, nil, "")
+                return ("Pulled from origin.", nil, result.output)
             }
         }
         menu.addSeparator()
-        menu.add("Copy Name", id: .copyBranchName) { [weak self] in self?.copyPopup("Branch", ref.shortName) }
+
+        menu.add("Rename…", id: .renameBranch, enabled: ready && localRef != nil && available) { [weak self] in self?.renameBranchDialog(name, repo: repo) }
+        // Every delete asks for confirmation in its popup; an unmerged local branch offers Delete Anyway.
+        let unmerged: (String) -> Bool = { $0.contains("not fully merged") }
+        let noTree = ready && tree == nil && !isCurrent
+        menu.addSubmenu("Delete") { sub in
+            sub.add("Local + Origin", id: .deleteBranchEverywhere, enabled: noTree && localRef != nil && originRef != nil) { [weak self] in
+                self?.actionPopup("Delete Branch", facts: [.init(label: "Branch", value: name), .init(label: "From", value: "local + origin")], confirm: "Delete", running: "Deleting branch", git: repo,
+                    fallback: PopupFallback(title: "Delete Anyway", when: unmerged) {
+                        (try Git.performItem(.deleteBranchEverywhere(name, force: true), at: repo.path).output, nil, "")
+                    }) {
+                        (try Git.performItem(.deleteBranchEverywhere(name, force: false), at: repo.path, expectedSignature: repo.signature).output, nil, "")
+                    }
+            }
+            sub.add("Local Branch", id: .deleteBranch, enabled: noTree && localRef != nil) { [weak self] in
+                self?.actionPopup("Delete Local Branch", facts: [.init(label: "Branch", value: name)], confirm: "Delete", running: "Deleting branch", git: repo,
+                    fallback: PopupFallback(title: "Delete Anyway", when: unmerged) {
+                        _ = try Git.performItem(.deleteLocalBranch(name, force: true), at: repo.path)
+                        return ("Local branch deleted.", nil, "")
+                    }) {
+                        (try Git.performItem(.deleteLocalBranch(name, force: false), at: repo.path, expectedSignature: repo.signature).output, nil, "")
+                    }
+            }
+            sub.add("On \(remote)", id: .deleteRemoteBranch, enabled: ready && remoteRef != nil) { [weak self] in
+                self?.actionPopup("Delete on Remote", facts: [.init(label: "Branch", value: "\(remote)/\(name)")], confirm: "Delete", running: "Deleting on \(remote)", git: repo) {
+                    (try Git.performItem(.deleteRemoteBranch(remote: remote, branch: name), at: repo.path, expectedSignature: repo.signature).output, nil, "")
+                }
+            }
+            sub.add("Worktree", id: .deleteWorktree, enabled: tree.map { canDeleteWorktree($0, repo: repo) } ?? false) { [weak self] in
+                if let tree { self?.deleteWorktreePopup(tree, repo: repo) }
+            }
+        }
+        menu.addSeparator()
+        menu.add("Copy Branch Name", id: .copyBranchName) { [weak self] in self?.copyPopup("Branch", name) }
+        menu.add("Copy Worktree Path", id: .copyWorktreePath, enabled: tree != nil) { [weak self] in if let tree { self?.copyPopup("Path", tree.path) } }
         return menu.finish()
     }
     func tagMenu(reference: String, repo: Repository) -> NSMenu? {
@@ -184,29 +190,38 @@ extension Controller {
         menu.add("Copy Name", id: .copyTagName) { [weak self] in self?.copyPopup("Tag", ref.shortName) }
         return menu.finish()
     }
+    /// The worktree icon: Open Worktree, Delete Worktree (confirmed in its popup; the branch is kept), Copy Path.
     func worktreeMenu(_ tree: GitWorktree, repo: Repository) -> NSMenu {
-        let menu = ItemMenuBuilder(kind: .worktree, usage: actionUsage)
+        let menu = ItemMenuBuilder(kind: .worktree, usage: actionUsage, fixedOrder: true)
         let active = Git.samePath(tree.path, repo.path), ready = !loading && !operationRunning
-        menu.add("Open", id: .openWorktree, enabled: ready && tree.exists && !tree.isBare && !active) { [weak self] in
+        // Opening only switches the window to that folder, so it acts at once instead of through a popup.
+        menu.add("Open Worktree", id: .openWorktree, enabled: ready && tree.exists && !tree.isBare && !active) { [weak self] in
             guard self?.repository?.path == repo.path, self?.operationRunning == false else { return }
             self?.open(tree.path)
         }
-        menu.add("Show in Finder", id: .revealWorktree, enabled: tree.exists) { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: tree.path) }
-        menu.add("Copy Worktree Path", id: .copyWorktreePath) { [weak self] in self?.copyText(tree.path) }
-        menu.add("Delete Worktree…", id: .deleteWorktree, enabled: ready && !active && !tree.isMain && tree.exists && !tree.isLocked && !tree.isBare && tree.changedFiles == 0 && tree.associationIssue == nil) { [weak self] in
-            guard let self else { return }
-            let alert = NSAlert(); alert.messageText = "Delete Worktree"; alert.informativeText = "Remove \(tree.path). Its branch is kept. Modified, active, main or locked worktrees will not be removed."
-            alert.alertStyle = .warning; alert.addButton(withTitle: "Cancel"); alert.addButton(withTitle: "Delete Worktree")
-            alert.beginSheetModal(for: self.window!) { [weak self] response in
-                guard response == .alertSecondButtonReturn else { return }
-                self?.runItem(title: "Delete Worktree", repo: repo) {
-                    let current = try Git.worktrees(at: repo.path).first { $0.path == tree.path }
-                    guard current?.head == tree.head, current?.branch == tree.branch else { throw GitError(message: "This workspace changed. Refresh before deleting it.") }
-                    return ActionResult(output: try Git.performWorktree(.remove(tree.path), at: repo.path), backup: nil)
-                }
-            }
-        }
+        menu.addSeparator()
+        menu.add("Delete Worktree", id: .deleteWorktree, enabled: canDeleteWorktree(tree, repo: repo)) { [weak self] in self?.deleteWorktreePopup(tree, repo: repo) }
+        menu.addSeparator()
+        menu.add("Copy Worktree Path", id: .copyWorktreePath) { [weak self] in self?.copyPopup("Path", tree.path) }
         return menu.finish()
+    }
+    func canDeleteWorktree(_ tree: GitWorktree, repo: Repository) -> Bool {
+        !loading && !operationRunning && !tree.isMain && tree.exists && !tree.isLocked && !tree.isBare && tree.changedFiles == 0 && tree.associationIssue == nil
+    }
+    /// Confirmed in the popup; the branch is kept. Deleting the displayed worktree runs Git from
+    /// the main worktree, then switches the window there.
+    func deleteWorktreePopup(_ tree: GitWorktree, repo: Repository) {
+        let displayed = Git.samePath(tree.path, repo.path)
+        guard let main = repo.worktrees.first(where: \.isMain)?.path ?? (displayed ? nil : repo.path) else { return }
+        var facts: [ActionPopup.Fact] = [.init(label: "Folder", value: tree.path)]
+        if let branch = tree.branch { facts.append(.init(label: "Branch kept", value: branch.hasPrefix("refs/heads/") ? String(branch.dropFirst(11)) : branch)) }
+        actionPopup("Delete Worktree", detail: displayed ? "This is the worktree shown in the window: it then switches to the main worktree." : "", facts: facts, confirm: "Delete", running: "Deleting worktree", git: repo,
+            then: displayed ? { [weak self] in self?.open(main, focusHead: true) } : nil) {
+            let current = try Git.worktrees(at: main).first { Git.samePath($0.path, tree.path) }
+            guard current?.head == tree.head, current?.branch == tree.branch else { throw GitError(message: "This worktree changed. Refresh before deleting it.") }
+            _ = try Git.performWorktree(.remove(tree.path), at: main)
+            return ("Worktree deleted.", [.init(label: "Folder", value: tree.path)], "")
+        }
     }
     func executeItemAction(_ action: RepositoryItemAction, repo: Repository, title: String) {
         runItem(title: title, repo: repo, completion: { [weak self] in

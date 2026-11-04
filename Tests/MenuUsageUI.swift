@@ -54,15 +54,15 @@ func checkAdaptiveCommitMenu() throws {
     defer { controller.window?.close() }
     func has(_ menu:NSMenu,_ expected:[String]) {
         precondition(Set(ids(menu)) == Set(expected),"Unexpected items: \(ids(menu))")
-        precondition(menu.items.allSatisfy { $0.submenu == nil },"Short item menus never contain Plus or unrelated ref submenus")
-        if expected == tagIDs || expected == treeIDs { precondition(!menu.items.contains { $0.isSeparatorItem },"Usage-ranked menus have no separators") }
+        precondition(menu.items.allSatisfy { $0.submenu == nil || $0.title == "Delete" },"Only the branch Delete submenu nests: \(menu.items.map(\.title))")
+        if expected == branchIDs { precondition(ids(menu.items.first { $0.title == "Delete" }!.submenu!) == deleteIDs) }
+        if expected == tagIDs { precondition(!menu.items.contains { $0.isSeparatorItem },"Usage-ranked menus have no separators") }
     }
     let commitIDs = ["addTag","createBranch","cherryPick","copyHash","copyShortHash","copySubject"]
-    let branchIDs = ["createWorktree","merge","renameBranch","deleteBranchEverywhere","copyBranchName"]
-    let localIDs = ["pushBranch","deleteBranch","copyBranchName"]
-    let remoteIDs = ["pullBranch","deleteRemoteBranch","copyBranchName"]
+    let branchIDs = ["openBranch","merge","pushBranch","pullBranch","renameBranch","copyBranchName","copyWorktreePath"]
+    let deleteIDs = ["deleteBranchEverywhere","deleteBranch","deleteRemoteBranch","deleteWorktree"]
     let tagIDs = ["deleteTag","pushTag","copyTagName"]
-    let treeIDs = ["openWorktree","revealWorktree","copyWorktreePath","deleteWorktree"]
+    let treeIDs = ["openWorktree","deleteWorktree","copyWorktreePath"]
     has(controller.commitMenu(at:0)!,commitIDs)
     let commitMenu = controller.commitMenu(at:0)!
     precondition(commitMenu.items.map { $0.isSeparatorItem ? "-" : $0.title } == ["Add Tag…","Create Branch…","-","Cherry Pick…","-","Copy Hash","Copy Short Hash","Copy Subject"],"Commit menu keeps its fixed order: \(commitMenu.items.map(\.title))")
@@ -71,17 +71,22 @@ func checkAdaptiveCommitMenu() throws {
     has(controller.worktreeMenu(tree,repo:repo),treeIDs)
     func enabled(_ menu: NSMenu,_ id: String) -> Bool { menu.items.first { $0.identifier?.rawValue == id }!.isEnabled }
     let name = controller.branchMenu(reference:"refs/heads/feature",repo:repo)!
-    precondition(name.items.map { $0.isSeparatorItem ? "-" : $0.title } == ["Create Worktree","Merge into Current","-","Rename…","Delete Branch","-","Copy Name"])
-    precondition(!enabled(name,"createWorktree"),"A branch with a worktree cannot create another")
-    let local = controller.localBranchMenu(reference:"refs/heads/feature",repo:repo)!
-    has(local,localIDs)
-    precondition(!enabled(local,"pushBranch"),"Push is greyed while origin is at the same commit")
-    precondition(!enabled(local,"deleteBranch"),"A branch with a worktree cannot be deleted")
-    let remote = controller.remoteBranchMenu(reference:"refs/remotes/origin/feature",repo:repo)!
-    has(remote,remoteIDs)
-    precondition(!enabled(remote,"pullBranch"),"Pull is greyed while the local branch is at the same commit")
+    precondition(controller.worktreeMenu(tree,repo:repo).items.map { $0.isSeparatorItem ? "-" : $0.title } == ["Open Worktree","-","Delete Worktree","-","Copy Worktree Path"])
+    precondition(name.items.map { $0.isSeparatorItem ? "-" : $0.title } == ["Open Branch","Merge into Current","-","Push","Pull","-","Rename…","Delete","-","Copy Branch Name","Copy Worktree Path"],"\(name.items.map(\.title))")
+    let delete = name.items.first { $0.title == "Delete" }!.submenu!
+    precondition(delete.items.map(\.title) == ["Local + Origin","Local Branch","On origin","Worktree"])
+    precondition(enabled(name,"openBranch") && enabled(name,"copyWorktreePath"))
+    precondition(!enabled(name,"pushBranch"),"Push is greyed while origin is at the same commit")
+    precondition(!enabled(name,"pullBranch"),"Pull is greyed while the local branch is at the same commit")
+    precondition(!enabled(delete,"deleteBranch") && !enabled(delete,"deleteBranchEverywhere"),"A branch with a worktree cannot be deleted")
+    precondition(enabled(delete,"deleteRemoteBranch") && enabled(delete,"deleteWorktree"))
+    for other in ["refs/remotes/origin/feature"] { precondition(controller.branchMenu(reference:other,repo:repo)!.items.map(\.title) == name.items.map(\.title),"Same menu from every badge zone") }
     let main = repo.worktrees.first { $0.isMain }!
     precondition(controller.worktreeMenu(main,repo:repo).items.first { $0.identifier?.rawValue == "deleteWorktree" }?.isEnabled == false)
+    // The worktree shown in the window can be deleted too: Git runs from the main worktree, then the window moves there.
+    let shown = try Git.load(at:tree.path,branch:nil,limit:500)
+    let shownDelete = controller.branchMenu(reference:"refs/heads/feature",repo:shown)!.items.first { $0.title == "Delete" }!.submenu!
+    precondition(enabled(shownDelete,"deleteWorktree"),"The displayed worktree can be deleted")
     let pasteboard = NSPasteboard.general
     let previous = pasteboard.pasteboardItems?.map { item in item.types.compactMap { type in item.data(forType:type).map { (type,$0) } } } ?? []
     defer {
@@ -128,7 +133,7 @@ func checkAdaptiveCommitMenu() throws {
     let subjectIndex = controller.table.tableColumns.firstIndex { $0.identifier.rawValue == "subject" }!
     let cell = controller.table.view(atColumn:subjectIndex,row:0,makeIfNecessary:true) as! CommitCell
     let image = NSImage(size:cell.bounds.size); image.lockFocus(); cell.draw(cell.bounds); image.unlockFocus()
-    let expectedTargets:[HistoryMenuTarget] = [.commit,.reference("refs/heads/feature"),.localBranch("refs/heads/feature"),.remoteBranch("refs/remotes/origin/feature"),.reference("refs/tags/release-tag"),.worktree(tree.path)]
+    let expectedTargets:[HistoryMenuTarget] = [.commit,.reference("refs/heads/feature"),.localBranch("refs/heads/feature"),.remoteBranch("refs/remotes/origin/feature"),.reference("refs/tags/release-tag")]
     for target in expectedTargets {
         let found = (0..<Int(cell.bounds.width)).first { cell.contextTarget(at:NSPoint(x:CGFloat($0),y:cell.bounds.midY)) == target }
         precondition(found != nil,"A visible badge must have an explicit target: \(target)")
@@ -137,12 +142,11 @@ func checkAdaptiveCommitMenu() throws {
         let menu = controller.table.menu(for:event)!
         switch target {
         case .commit: has(menu,commitIDs)
-        case .worktree: has(menu,treeIDs)
         case .reference(let name): has(menu,name.hasPrefix("refs/tags/") ? tagIDs : branchIDs)
-        case .localBranch: has(menu,localIDs)
-        case .remoteBranch: has(menu,remoteIDs)
+        case .localBranch, .remoteBranch, .worktree: has(menu,branchIDs)
         }
     }
+    precondition(!(0..<Int(cell.bounds.width)).contains { cell.contextTarget(at:NSPoint(x:CGFloat($0),y:cell.bounds.midY)) == .worktree(tree.path) },"A branch's worktree has no icon of its own")
     precondition(cell.contextTarget(at:NSPoint(x:cell.bounds.maxX+1,y:cell.bounds.midY)) == .commit)
     let manager = WorktreeManager(owner:controller,path:path); manager.trees = repo.worktrees; manager.table.reloadData()
     let row = manager.trees.firstIndex { $0.path == tree.path }!
@@ -165,12 +169,12 @@ func checkAdaptiveCommitMenu() throws {
     try "keep prod edits".write(to: URL(fileURLWithPath: path).appendingPathComponent("dirty.txt"), atomically: true, encoding: .utf8)
     let switched = try Git.load(at: path, branch: nil, limit: 500)
     controller.repository = switched
-    let pull = controller.remoteBranchMenu(reference: "refs/remotes/origin/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!
+    let pull = controller.branchMenu(reference: "refs/remotes/origin/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!
     precondition(pull.isEnabled, "Remote main must allow Pull without editing the folder externally switched to prod")
     controller.loading = true
-    precondition(!controller.remoteBranchMenu(reference: "refs/remotes/origin/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!.isEnabled)
+    precondition(!controller.branchMenu(reference: "refs/remotes/origin/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!.isEnabled)
     controller.loading = false
     print("PASS: Pull enabled on local/remote main despite the prod association mismatch; loading still blocks actions")
-    print("PASS: four short typed menus, per-item frequency persistence, legacy counts, disabled guards, full/10-character hashes and exact workspace path; real badge/table right-click routing targets commit/local/remote/tag/worktree correctly")
+    print("PASS: one branch menu for every badge zone with a Delete submenu, short typed menus, per-item frequency persistence, legacy counts, disabled guards, full/10-character hashes and exact workspace path; real badge/table right-click routing targets commit/local/remote/tag/worktree correctly")
 }
 try checkAdaptiveCommitMenu()

@@ -44,7 +44,7 @@ GitGraph Lite manages the Git side of the workflow alongside your AI tools; you 
 
 - **Follow every branch.** Trace merges across a coloured graph. See local branches, origin refs, tags and worktrees in context.
 - **Understand the change.** Inspect side-by-side or unified diffs with line numbers and word highlights. Browse changed files as a folder tree, or compare two commits with ⌘-click.
-- **Act on exactly what you click.** Short menus for commits, branches, tags and worktrees. Push one branch, publish one tag, or pull into the selected branch's workspace with fast-forward protection.
+- **Act on exactly what you click.** One short menu per commit, branch or tag; every action runs in a single popup with copy buttons, and every delete asks first. **Open Branch** creates its worktree when needed. Push one branch, publish one tag, or pull with fast-forward protection.
 - **Make room for what matters.** Filter several branches, pin the important ones and fold long commit chains. The graph refreshes after changes made in your other Git tools.
 
 ## Get started

@@ -1,6 +1,6 @@
 # Screenshot gallery
 
-These are real captures of GitGraph Lite 0.11.0 running a fictional **Atlas** repository. The sample history contains five branches, multiple merges, a divergent origin ref, an unmerged experiment, two tags and three dedicated worktrees. Names, authors and code are demonstration data. No user repository content is shown.
+These are real captures of GitGraph Lite running a fictional **Atlas** repository: the graph with the branch menu comes from 0.13.0, the other views from 0.11.0. The sample history contains five branches, multiple merges, a divergent origin ref, an unmerged experiment, two tags and three dedicated worktrees. Names, authors and code are demonstration data. No user repository content is shown.
 
 - [Complex graph with branch actions](branch-actions.png)
 - [Side-by-side diff](diff-side-by-side.png)

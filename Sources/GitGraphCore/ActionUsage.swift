@@ -11,19 +11,20 @@ public enum CommitActionID: String, CaseIterable {
     case continueOperation, abortOperation, createLocalFromRemote
 
     case copyShortHash, pushBranch, pullBranch, pushTag, copyWorktreePath, revealWorktree, deleteWorktree
-    case deleteRemoteBranch, deleteBranchEverywhere
+    case deleteRemoteBranch, deleteBranchEverywhere, openBranch
 
     public var title: String {
         switch self {
         case .copyShortHash: return "Copy Short Commit Hash"
         case .deleteRemoteBranch: return "Delete on Remote"
         case .deleteBranchEverywhere: return "Delete Branch"
+        case .openBranch: return "Open Branch"
         case .pushBranch: return "Push to origin"
         case .pullBranch: return "Pull from origin"
         case .pushTag: return "Publish on origin"
         case .copyWorktreePath: return "Copy Worktree Path"
         case .revealWorktree: return "Show in Finder"
-        case .deleteWorktree: return "Delete Worktree…"
+        case .deleteWorktree: return "Delete Worktree"
         case .checkout: return "Open Branch…"
         case .createWorktree: return "Create and Open Branch Here…"
         case .compareHead: return "Compare with HEAD"

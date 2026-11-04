@@ -6,6 +6,7 @@ All published application versions are available from the linked GitHub releases
 
 ## Recent milestones
 
+- **0.13** — One branch menu on every part of a branch badge, with a **Delete** submenu (local + origin, local, remote, worktree); **Open Branch** creates the worktree when needed; every delete asks for confirmation; Lite tag menu (Delete Tag, Push, Copy Name) across all remotes.
 - **0.12** — Every commit action runs in one popup (input, progress, result or error) with copy buttons; Lite commit menu; merge always creates a merge commit; Abort/Continue on conflicts; light matching badge icons.
 - **0.11** — Short menus for commits, branches, tags and worktrees; full/short hash and path copying; targeted origin Push/Pull and tag publication.
 - **0.10.7** — Faster loading and filtering, with [reproducible measurements](docs/performance-0.10.7.md).
@@ -19,6 +20,7 @@ All published application versions are available from the linked GitHub releases
 
 | Version & download | Release |
 | --- | --- |
+| [v0.13.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.13.0) | GitGraph Lite 0.13.0: one branch menu with a Delete submenu, Open Branch creates its worktree, confirmed deletes |
 | [v0.12.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.12.0) | GitGraph Lite 0.12.0: one popup per commit action, Lite commit menu and light badge icons |
 | [v0.11.3](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.11.3) | GitGraph Lite 0.11.3: Pinned checkbox replaces All with inverted behavior |
 | [v0.11.2](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.11.2) | GitGraph Lite 0.11.2: pull an unused local branch despite an externally switched workspace |

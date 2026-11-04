@@ -269,7 +269,7 @@ final class CommitCell: NSTableCellView {
             let chip = NSRect(x: cursor, y: box.minY, width: localW, height: box.height)
             drawComputer(tint: watermark, in: chip)
             if let local = label.fullNames.first { localRegions.append((chip, local)) }
-            regionTips.append((chip, "local"))
+            regionTips.append((chip, "Branch \(label.name) available locally"))
             cursor += localW
         }
         if let tree, workspaceW > 0 {
@@ -285,7 +285,7 @@ final class CommitCell: NSTableCellView {
             drawCloud(tint: watermark, in: chip)
             remoteRegions.append((chip, ref))
             let remoteName = label.remotes.indices.contains(index) ? label.remotes[index] : ref
-            regionTips.append((chip, remoteName))
+            regionTips.append((chip, "Branch \(label.name) available on \(remoteName)"))
             cursor += chipWidth
         }
         let nameLimit = chips > 0 ? chipsStart : box.maxX
@@ -392,18 +392,16 @@ final class CommitCell: NSTableCellView {
             guard remaining > 45 else { overflow(from: i); break }
             let rest = i < branchLabels.count-1 ? CGFloat(32) : 0
             let tree = label.kind == .branch ? workspace(matching: label) : nil
-            guard let drawn = compoundBadge(label, tree: tree, color: branchColor, x: left, maxWidth: remaining-rest) else { overflow(from: i); break }
+            // A branch's worktree has no icon of its own: the branch menu opens, copies and deletes it.
+            guard let drawn = compoundBadge(label, tree: nil, color: branchColor, x: left, maxWidth: remaining-rest) else { overflow(from: i); break }
             referenceRegions.append((drawn.name, label))
-            if let tree, let chip = drawn.workspace {
-                claimed.insert(tree.path)
-                worktreeRegions.append((chip, tree))
-            }
+            if let tree { claimed.insert(tree.path) }
             left += drawn.width+5
             if i < branchLabels.count-1 && budget-(left-5) < 80 {
                 overflow(from: i+1); break
             }
         }
-        // A worktree with no local branch on this row is a stack icon. Its path is the hover text.
+        // Only a worktree with no branch on this row (detached) keeps a stack icon. Its path is the hover text.
         for tree in worktrees where !claimed.contains(tree.path) {
             let width = chipWidth
             guard right-left > width+80 else { break }

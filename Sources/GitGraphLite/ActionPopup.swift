@@ -208,13 +208,13 @@ struct PopupFallback { let title: String; let when: (String) -> Bool; let work: 
 extension Controller {
     /// Runs `work` behind a popup. With `confirm`, the popup first asks for input; without, it runs at once.
     /// Git work runs off the main thread and refreshes the graph; quick local work (a copy) stays on the main thread.
-    @discardableResult func actionPopup(_ title: String, detail: String = "", facts: [ActionPopup.Fact] = [], controls: [NSView] = [], required: [NSTextField] = [], confirm: String? = nil, focus: NSView? = nil, running: String? = nil, git repo: Repository? = nil, fallback: PopupFallback? = nil, work: @escaping PopupWork) -> ActionPopup {
+    @discardableResult func actionPopup(_ title: String, detail: String = "", facts: [ActionPopup.Fact] = [], controls: [NSView] = [], required: [NSTextField] = [], confirm: String? = nil, focus: NSView? = nil, running: String? = nil, git repo: Repository? = nil, fallback: PopupFallback? = nil, then: (() -> Void)? = nil, work: @escaping PopupWork) -> ActionPopup {
         let popup = ActionPopup(title: title, detail: detail, facts: facts, controls: controls, required: required, parent: window)
         popup.copy = { [weak self] in self?.copyText($0) }
         var back: (() -> Void)?
         let start = { [weak self, weak popup] in
             guard let self, let popup else { return }
-            self.runPopupWork(popup, running: running ?? title, repo: repo, back: back, fallback: fallback, work: work)
+            self.runPopupWork(popup, running: running ?? title, repo: repo, back: back, fallback: fallback, then: then, work: work)
         }
         if let confirm {
             back = { [weak popup] in popup?.askInput(confirm: confirm, focus: focus, action: start) }
@@ -222,7 +222,7 @@ extension Controller {
         } else { start() }
         return popup
     }
-    private func runPopupWork(_ popup: ActionPopup, running: String, repo: Repository?, back: (() -> Void)?, fallback: PopupFallback? = nil, work: @escaping PopupWork) {
+    private func runPopupWork(_ popup: ActionPopup, running: String, repo: Repository?, back: (() -> Void)?, fallback: PopupFallback? = nil, then: (() -> Void)? = nil, work: @escaping PopupWork) {
         guard let repo else {
             switch Result(catching: work) {
             case .success(let done): popup.showSuccess(done.message, facts: done.facts, output: done.output)
@@ -243,9 +243,10 @@ extension Controller {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.operationRunning = false; self.spinner.stopAnimation(nil); self.branches.isEnabled = true; self.more.isEnabled = true
-                self.refresh(path: repo.path)
+                // A deleted displayed worktree has no folder left to refresh; `then` moves the window away.
+                if FileManager.default.fileExists(atPath: repo.path) { self.refresh(path: repo.path) }
                 switch result {
-                case .success(let done): popup.showSuccess(done.message, facts: done.facts, output: done.output)
+                case .success(let done): popup.showSuccess(done.message, facts: done.facts, output: done.output); then?()
                 case .failure(let error):
                     let text = error.localizedDescription
                     if let pending { self.showConflict(popup, operation: pending, repo: repo, error: text) }
