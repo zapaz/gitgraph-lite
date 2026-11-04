@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="Assets/AppIcon.png" width="80" alt="GitGraph Lite icon">
+  <img src="Assets/AppIcon-256.png" width="80" alt="GitGraph Lite icon">
   <h1>GitGraph Lite</h1>
   <p><strong>Parallel AI coding. Separate worktrees. One clear graph.</strong></p>
   <p>A lightweight, native macOS Git browser with worktrees at its core.<br>Give each AI task its own branch and working folder. Review them all in one graph.</p>
