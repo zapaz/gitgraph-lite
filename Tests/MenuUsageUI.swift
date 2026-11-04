@@ -174,6 +174,19 @@ func checkAdaptiveCommitMenu() throws {
     controller.loading = true
     precondition(!controller.branchMenu(reference: "refs/remotes/origin/main", repo: switched)!.items.first { $0.identifier?.rawValue == "pullBranch" }!.isEnabled)
     controller.loading = false
+    // The window keeps any width the user gives it (a separator in the graph pane once pinned it).
+    let window = controller.window!; let oldFrame = window.frame
+    window.setFrame(NSRect(x: oldFrame.minX, y: oldFrame.minY, width: 1600, height: 900), display: false)
+    window.contentView!.layoutSubtreeIfNeeded()
+    precondition(window.frame.width == 1600, "Window width was forced to \(window.frame.width)")
+    window.setFrame(oldFrame, display: false)
+    // The Diff checkbox hides and restores the commit details pane, and remembers the choice.
+    let previousDiff = UserDefaults.standard.object(forKey: "showDiff")
+    controller.diffToggle.state = .off; controller.diffToggleChanged(controller.diffToggle)
+    precondition(controller.detailsPane!.isHidden && UserDefaults.standard.bool(forKey: "showDiff") == false)
+    controller.diffToggle.state = .on; controller.diffToggleChanged(controller.diffToggle)
+    precondition(!controller.detailsPane!.isHidden)
+    if let previousDiff { UserDefaults.standard.set(previousDiff, forKey: "showDiff") } else { UserDefaults.standard.removeObject(forKey: "showDiff") }
     print("PASS: Pull enabled on local/remote main despite the prod association mismatch; loading still blocks actions")
     print("PASS: one branch menu for every badge zone with a Delete submenu, short typed menus, per-item frequency persistence, legacy counts, disabled guards, full/10-character hashes and exact workspace path; real badge/table right-click routing targets commit/local/remote/tag/worktree correctly")
 }

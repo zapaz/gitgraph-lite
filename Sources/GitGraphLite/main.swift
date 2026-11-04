@@ -19,6 +19,12 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var branchSelection: Set<String>?
     let groupingToggle = NSButton(checkboxWithTitle: "Folded", target: nil, action: nil)
     let pinnedBranchesToggle = NSButton(checkboxWithTitle: "Pinned", target: nil, action: nil)
+    let diffToggle = NSButton(checkboxWithTitle: "Diff", target: nil, action: nil)
+    var showDiff = UserDefaults.standard.object(forKey: "showDiff") as? Bool ?? true
+    let currentBranchLabel = NSTextField(labelWithString: "")
+    let currentPathLabel = NSTextField(labelWithString: "")
+    var mainSplit: NSSplitView?
+    var detailsPane: NSView?
     var expandedGroups = Set<String>()
     var collapsedGroups = Set<String>()
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
@@ -107,8 +113,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         groupingToggle.toolTip = "Fold commit chains. Uncheck to show every commit; use + / − to expand or fold one chain."
         pinnedBranchesToggle.target = self; pinnedBranchesToggle.action = #selector(pinnedBranchesChanged(_:))
         pinnedBranchesToggle.toolTip = "Show selected and pinned branches. Uncheck to show all local and remote branch histories."
+        diffToggle.target = self; diffToggle.action = #selector(diffToggleChanged(_:)); diffToggle.state = showDiff ? .on : .off
+        diffToggle.toolTip = "Show the selected commit's details and diff below the graph."
         updateBranchButton()
-        let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, pinnedBranchesToggle, search, spinner, refresh, open])
+        let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branches, groupingToggle, pinnedBranchesToggle, diffToggle, search, spinner, refresh, open])
         header.orientation = .horizontal; header.alignment = .centerY; header.distribution = .fill; header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         header.heightAnchor.constraint(equalToConstant: 44).isActive = true
@@ -160,10 +168,39 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         bottom.addArrangedSubview(diffViewer)
         details.addArrangedSubview(bottom)
 
+        // Between the graph and the diff: the window's branch and its worktree folder, each copyable.
+        let branchIcon = NSImageView(image: NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: "Branch")!)
+        branchIcon.contentTintColor = .secondaryLabelColor
+        currentBranchLabel.font = .systemFont(ofSize: 11, weight: .semibold); currentBranchLabel.lineBreakMode = .byTruncatingTail
+        currentPathLabel.font = .systemFont(ofSize: 11); currentPathLabel.textColor = .secondaryLabelColor; currentPathLabel.lineBreakMode = .byTruncatingMiddle
+        currentPathLabel.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        func copyIcon(_ name: String, _ value: @escaping () -> String) -> NSButton {
+            let button = CallbackButton("") { [weak self] in let text = value(); if !text.isEmpty { self?.copyPopup(name, text) } }
+            button.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy " + name); button.isBordered = false
+            button.toolTip = "Copy " + name; button.contentTintColor = .secondaryLabelColor
+            return button
+        }
+        let folderIcon = NSImageView(image: NSImage(systemSymbolName: "folder", accessibilityDescription: "Worktree")!)
+        folderIcon.contentTintColor = .secondaryLabelColor
+        let worktreeLine = NSStackView(views: [branchIcon, currentBranchLabel, copyIcon("Branch") { [weak self] in self?.currentBranchLabel.stringValue ?? "" },
+                                               folderIcon, currentPathLabel, copyIcon("Worktree path") { [weak self] in self?.currentPathLabel.stringValue ?? "" }, NSView()])
+        worktreeLine.arrangedSubviews.last!.setContentHuggingPriority(.init(1), for: .horizontal)
+        worktreeLine.distribution = .fill; worktreeLine.alignment = .centerY; worktreeLine.spacing = 6; worktreeLine.setCustomSpacing(18, after: worktreeLine.arrangedSubviews[2])
+        worktreeLine.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 20)
+        let infoBar = InfoBarView(); worktreeLine.translatesAutoresizingMaskIntoConstraints = false; infoBar.addSubview(worktreeLine)
+        NSLayoutConstraint.activate([worktreeLine.leadingAnchor.constraint(equalTo: infoBar.leadingAnchor), worktreeLine.trailingAnchor.constraint(equalTo: infoBar.trailingAnchor),
+                                     worktreeLine.topAnchor.constraint(equalTo: infoBar.topAnchor), worktreeLine.bottomAnchor.constraint(equalTo: infoBar.bottomAnchor),
+                                     infoBar.heightAnchor.constraint(equalToConstant: 30)])
+        let graphPane = NSStackView(views: [graphScroll, infoBar]); graphPane.orientation = .vertical; graphPane.spacing = 0; graphPane.distribution = .fill
+        for child in graphPane.arrangedSubviews { child.widthAnchor.constraint(equalTo: graphPane.widthAnchor).isActive = true }
+        graphScroll.setContentHuggingPriority(.init(1), for: .vertical)
+
         let split = NSSplitView(); split.isVertical = false; split.dividerStyle = .thin
-        split.addArrangedSubview(graphScroll); split.addArrangedSubview(details)
+        split.addArrangedSubview(graphPane); split.addArrangedSubview(details)
+        // No separator box in this pane: inside the split it pinned the window to a fixed width.
+        mainSplit = split; detailsPane = details; details.isHidden = !showDiff
         graphScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
-        details.heightAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
+        let detailsMinimum = details.heightAnchor.constraint(greaterThanOrEqualToConstant: 200); detailsMinimum.priority = .init(999); detailsMinimum.isActive = true
         outer.addArrangedSubview(split)
         outer.addArrangedSubview(separator())
         footer.font = .systemFont(ofSize: 11); footer.textColor = .secondaryLabelColor
@@ -182,12 +219,20 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         root.layoutSubtreeIfNeeded(); split.setPosition(350, ofDividerAt: 0); bottom.setPosition(290, ofDividerAt: 0)
         DispatchQueue.main.async {
             root.layoutSubtreeIfNeeded()
-            split.setPosition(split.bounds.height * 0.48, ofDividerAt: 0)
+            if self.showDiff { split.setPosition(split.bounds.height * 0.48, ofDividerAt: 0) }
             bottom.setPosition(280, ofDividerAt: 0)
         }
         setDiff("Open a repository, then select a commit and a file.\nRight-click a commit for Git actions.")
     }
 
+    @objc func diffToggleChanged(_ sender: NSButton) {
+        showDiff = sender.state == .on
+        UserDefaults.standard.set(showDiff, forKey: "showDiff")
+        guard let split = mainSplit, let details = detailsPane else { return }
+        details.isHidden = !showDiff
+        split.adjustSubviews()
+        if showDiff { split.layoutSubtreeIfNeeded(); split.setPosition(split.bounds.height * 0.48, ofDividerAt: 0) }
+    }
     func separator() -> NSView {
         let line = NSBox(); line.boxType = .separator; line.heightAnchor.constraint(equalToConstant: 1).isActive = true; return line
     }
@@ -244,6 +289,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     self.repoTitle.stringValue = repo.worktrees.first(where: \.isMain)?.name ?? URL(fileURLWithPath: repo.path).lastPathComponent
                     self.repoSubtitle.stringValue = repo.branch + (repo.worktrees.first { Git.samePath($0.path, repo.path) }.map { "  ·  " + $0.stateLabel } ?? "")
                     self.repoTitle.toolTip = repo.path
+                    self.currentBranchLabel.stringValue = repo.branch; self.currentPathLabel.stringValue = repo.path
+                    self.currentPathLabel.toolTip = repo.path
                     self.repoSubtitle.toolTip = repo.path + "  ·  " + self.repoSubtitle.stringValue
                     self.window?.title = self.repoTitle.stringValue + " — GitGraph Lite"
                     self.branchPins = Set(UserDefaults.standard.stringArray(forKey: self.branchPreferenceKey) ?? [])
@@ -493,6 +540,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let refresh = view.addItem(withTitle: "Refresh", action: #selector(Controller.refreshNow), keyEquivalent: "r"); refresh.target = controller
         let find = view.addItem(withTitle: "Find Commit", action: #selector(Controller.focusSearch), keyEquivalent: "f"); find.target = controller
         NSApp.mainMenu = menu
+    }
+}
+
+/// The tinted bar between the graph and the diff; its colours follow light and dark mode.
+final class InfoBarView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.controlAccentColor.withAlphaComponent(0.14).setFill(); bounds.fill()
+        NSColor.separatorColor.setFill()
+        NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
+        NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
     }
 }
 
