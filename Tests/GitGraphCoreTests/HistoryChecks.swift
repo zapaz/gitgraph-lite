@@ -59,3 +59,12 @@ func checkDateOrderedHistory() throws {
     XCTAssertEqual(GraphLayout.make(history.commits).count, 5)
     print("PASS: chronological interleaving of branches, child-before-parent topology, and unchanged active branch")
 }
+
+func checkShortBranchNames() {
+    XCTAssertEqual(Git.shortBranchName(subject: "chore: open T-41 Quanta creation persistence PR (#930)", commit: "2f3c09b9fdbe", taken: []), "open-t-41")
+    XCTAssertEqual(Git.shortBranchName(subject: "fix(data_aggregator)!: load stored trades", commit: "abc1234567", taken: ["load-stored-trades"]), "load-stored-trades-abc1234")
+    XCTAssertEqual(Git.shortBranchName(subject: "Ünïcode — ✨", commit: "abc1234567", taken: []), "unicode")
+    XCTAssertEqual(Git.shortBranchName(subject: "!!!", commit: "abc1234567", taken: []), "branch")
+    XCTAssertTrue(Git.shortBranchName(subject: "an extraordinarily lengthy subject line here", commit: "a", taken: []).count <= 24)
+    print("PASS: short automatic branch names")
+}

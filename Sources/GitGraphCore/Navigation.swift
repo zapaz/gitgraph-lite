@@ -107,3 +107,15 @@ extension Git {
         return NavigationResult(path: result.path, branch: local, didCreateWorktree: result.didCreateWorktree, didCreateBranch: true)
     }
 }
+
+extension Git {
+    /// A short, readable branch name from a commit subject: drops a `type(scope):` prefix, keeps three words, at most 24 characters.
+    /// A name already in `taken` gets the short hash appended.
+    public static func shortBranchName(subject: String, commit: String, taken: Set<String>) -> String {
+        let plain = subject.replacingOccurrences(of: #"^\s*[A-Za-z]+(\([^)]*\))?!?:\s*"#, with: "", options: .regularExpression)
+        let words = plain.folding(options: .diacriticInsensitive, locale: nil).lowercased().split { !($0.isLetter || $0.isNumber) || !$0.isASCII }.prefix(3)
+        var name = String(words.joined(separator: "-").prefix(24)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        if name.isEmpty { name = "branch" }
+        return taken.contains(name) ? name + "-" + commit.prefix(7) : name
+    }
+}

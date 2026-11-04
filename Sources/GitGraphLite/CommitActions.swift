@@ -143,13 +143,30 @@ extension Controller {
             }
         }
     }
-    func tagDialog(_ commit: Commit, repo: Repository) {
-        let name = nameField("Tag name"), annotation = nameField("Annotation (optional)")
-        let alert = inputForm("Add Tag", detail: "Tag commit \(commit.id.prefix(8)). An annotation creates an annotated tag; otherwise the tag is lightweight.", controls: [name, annotation])
-        alert.beginSheetModal(for: window!) { [weak self] response in
-            if response == .alertSecondButtonReturn { self?.execute(.addTag(name: name.stringValue, commit: commit.id, message: annotation.stringValue), repo: repo, title: "Add Tag") }
+    func copyPopup(_ label: String, _ value: String) {
+        // The copied value is shown with its own copy button too, like every value in a popup.
+        actionPopup(label + " copied") { [weak self] in
+            self?.copyText(value); return ("", [.init(label: label, value: value)], "")
         }
-        alert.window.makeFirstResponder(name)
+    }
+    /// Lite: one field, a lightweight tag. The commit is the one that was right-clicked.
+    func tagDialog(_ commit: Commit, repo: Repository) {
+        let name = nameField("Tag name")
+        actionPopup("Add Tag", controls: [name], required: [name], confirm: "Add Tag", focus: name, running: "Adding tag", git: repo) {
+            let tag = DispatchQueue.main.sync { name.stringValue.trimmingCharacters(in: .whitespaces) }
+            let result = try Git.perform(.addTag(name: tag, commit: commit.id, message: ""), at: repo.path, expectedSignature: repo.signature)
+            return ("Tag added.", [.init(label: "Tag", value: tag)], result.output)
+        }
+    }
+    /// Lite: one field, prefilled with a short name taken from the commit subject.
+    func createBranchDialog(_ commit: Commit, repo: Repository) {
+        let taken = Set(repo.references.filter(\.isBranch).map(\.shortName))
+        let name = nameField("Branch name", value: Git.shortBranchName(subject: commit.subject, commit: commit.id, taken: taken))
+        actionPopup("Create Branch", controls: [name], required: [name], confirm: "Create Branch", focus: name, running: "Creating branch", git: repo) {
+            let typed = DispatchQueue.main.sync { name.stringValue.trimmingCharacters(in: .whitespaces) }
+            let branch = try Git.createLocalBranch(at: repo.path, start: commit.id, name: typed, expectedSignature: repo.signature)
+            return ("Branch created.", [.init(label: "Branch", value: branch)], "")
+        }
     }
     func renameBranchDialog(_ old: String, repo: Repository) {
         let name = nameField("New branch name", value: old)
@@ -159,26 +176,31 @@ extension Controller {
         }
     }
     func mainlineDialog(_ commit: Commit, repo: Repository, revert: Bool) {
-        let title = revert ? "Revert Commit" : "Cherry-pick Commit"
-        let detail = revert ? "Create a new commit on \(repo.branch) that reverses \(commit.id.prefix(8))." : "Apply \(commit.id.prefix(8)) as a new commit on \(repo.branch)."
-        if commit.parents.count < 2 {
-            confirmAction(title, detail: detail + " A clean working tree is required.", repo: repo, action: revert ? .revert(commit: commit.id, mainline: nil) : .cherryPick(commit: commit.id, mainline: nil)); return
-        }
+        let title = revert ? "Revert" : "Cherry Pick"
+        let target = repo.branch
+        var controls: [NSView] = []
         let parents = NSPopUpButton()
-        parents.addItems(withTitles: commit.parents.enumerated().map { "Parent \($0.offset+1): \($0.element.prefix(8))" })
-        let alert = inputForm(title, detail: detail + "\n\nThis is a merge commit. Select the mainline parent whose changes Git should use as the baseline.", controls: [parents])
-        alert.beginSheetModal(for: window!) { [weak self] response in
-            if response == .alertSecondButtonReturn {
-                let parent = parents.indexOfSelectedItem+1
-                self?.execute(revert ? .revert(commit: commit.id, mainline: parent) : .cherryPick(commit: commit.id, mainline: parent), repo: repo, title: title)
-            }
+        if commit.parents.count >= 2 {
+            parents.addItems(withTitles: commit.parents.enumerated().map { "Mainline parent \($0.offset+1): \($0.element.prefix(8))" })
+            controls = [parents]
+        }
+        // Lite: only where the commit lands. A merge commit also needs its mainline parent.
+        let facts: [ActionPopup.Fact] = [.init(label: "Onto", value: target)]
+        actionPopup(title, facts: facts, controls: controls, confirm: title, running: revert ? "Reverting" : "Cherry-picking", git: repo) {
+            let mainline: Int? = controls.isEmpty ? nil : DispatchQueue.main.sync { parents.indexOfSelectedItem+1 }
+            let result = try Git.perform(revert ? .revert(commit: commit.id, mainline: mainline) : .cherryPick(commit: commit.id, mainline: mainline), at: repo.path, expectedSignature: repo.signature)
+            var done = facts
+            if let backup = result.backup { done.append(.init(label: "Backup", value: backup)) }
+            return (revert ? "Commit reverted." : "Commit applied.", done, result.output)
         }
     }
+    /// Always a real merge commit (--no-ff), so the branch stays visible in the graph. No mode to choose.
     func mergeDialog(_ commit: Commit, repo: Repository) {
-        let mode = NSPopUpButton(); mode.addItems(withTitles: ["Fast-forward when possible", "Always create a merge commit", "Squash changes (stage without committing)"])
-        let alert = inputForm("Merge Commit", detail: "Merge \(commit.id.prefix(8)) into \(repo.branch). A clean working tree is required.", controls: [mode])
-        alert.beginSheetModal(for: window!) { [weak self] response in
-            if response == .alertSecondButtonReturn { self?.execute(.merge(commit: commit.id, noFastForward: mode.indexOfSelectedItem == 1, squash: mode.indexOfSelectedItem == 2), repo: repo, title: "Merge Commit") }
+        let target = repo.branch
+        let facts: [ActionPopup.Fact] = [.init(label: "Branch", value: commit.subject), .init(label: "Commit", value: commit.id), .init(label: "Into", value: target)]
+        actionPopup("Merge", detail: "Create a merge commit on \(target), even when a fast-forward is possible. A clean working tree is required.", facts: facts, confirm: "Merge", running: "Merging", git: repo) {
+            let result = try Git.perform(.merge(commit: commit.id, noFastForward: true, squash: false), at: repo.path, expectedSignature: repo.signature)
+            return ("Merged into \(target).", facts, result.output)
         }
     }
 }

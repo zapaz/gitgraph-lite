@@ -11,18 +11,27 @@ final class ItemMenuBuilder {
     let menu = NSMenu()
     let kind: ActionItemKind
     let usage: ActionUsage
+    /// A fixed menu keeps the order it was built in, with its separators, instead of ranking items by use.
+    let fixedOrder: Bool
     private var ids: [CommitActionID] = []
     private var items: [CommitActionID: NSMenuItem] = [:]
-    init(kind: ActionItemKind, usage: ActionUsage) { self.kind = kind; self.usage = usage; menu.autoenablesItems = false }
+    private var separatorsBefore = Set<CommitActionID>()
+    private var pendingSeparator = false
+    init(kind: ActionItemKind, usage: ActionUsage, fixedOrder: Bool = false) { self.kind = kind; self.usage = usage; self.fixedOrder = fixedOrder; menu.autoenablesItems = false }
+    func addSeparator() { if !ids.isEmpty { pendingSeparator = true } }
     @discardableResult func add(_ title: String, id: CommitActionID, enabled: Bool = true, _ handler: @escaping () -> Void) -> NSMenuItem {
         let command = MenuCommand(id: id, kind: kind, usage: usage, handler: handler)
         let item = NSMenuItem(title: title, action: #selector(MenuCommand.invoke(_:)), keyEquivalent: "")
         item.target = command; item.representedObject = command; item.isEnabled = enabled
         item.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
+        if pendingSeparator { separatorsBefore.insert(id); pendingSeparator = false }
         ids.append(id); items[id] = item; return item
     }
     func finish() -> NSMenu {
-        for id in usage.ranked(ids, kind: kind) { menu.addItem(items[id]!) }
+        for id in fixedOrder ? ids : usage.ranked(ids, kind: kind) {
+            if fixedOrder, separatorsBefore.contains(id) { menu.addItem(.separator()) }
+            menu.addItem(items[id]!)
+        }
         return menu
     }
 }
@@ -46,12 +55,15 @@ extension Controller {
     }
     func commitMenu(at row: Int) -> NSMenu? {
         guard let commit = commit(at: row), let repo = repository else { return nil }
-        let menu = ItemMenuBuilder(kind: .commit, usage: actionUsage)
+        let menu = ItemMenuBuilder(kind: .commit, usage: actionUsage, fixedOrder: true)
         menu.add("Add Tag…", id: .addTag, enabled: canEditCurrent(repo)) { [weak self] in self?.tagDialog(commit, repo: repo) }
-        menu.add("Create Branch", id: .createBranch, enabled: !loading && !operationRunning) { [weak self] in self?.createLocalBranchOnly(start: commit.id) }
-        menu.add("Cherry-pick…", id: .cherryPick, enabled: canEditCurrent(repo)) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
-        menu.add("Copy Full Commit Hash", id: .copyHash) { [weak self] in self?.copyText(commit.id) }
-        menu.add("Copy Short Commit Hash", id: .copyShortHash) { [weak self] in self?.copyText(String(commit.id.prefix(10))) }
+        menu.add("Create Branch…", id: .createBranch, enabled: !loading && !operationRunning) { [weak self] in self?.createBranchDialog(commit, repo: repo) }
+        menu.addSeparator()
+        menu.add("Cherry Pick…", id: .cherryPick, enabled: canEditCurrent(repo)) { [weak self] in self?.mainlineDialog(commit, repo: repo, revert: false) }
+        menu.addSeparator()
+        menu.add("Copy Hash", id: .copyHash) { [weak self] in self?.copyPopup("Hash", commit.id) }
+        menu.add("Copy Short Hash", id: .copyShortHash) { [weak self] in self?.copyPopup("Short hash", String(commit.id.prefix(10))) }
+        menu.add("Copy Subject", id: .copySubject) { [weak self] in self?.copyPopup("Subject", commit.subject) }
         return menu.finish()
     }
     func branchMenu(reference: String, repo: Repository) -> NSMenu? {

@@ -54,13 +54,16 @@ func checkAdaptiveCommitMenu() throws {
     defer { controller.window?.close() }
     func has(_ menu:NSMenu,_ expected:[String]) {
         precondition(Set(ids(menu)) == Set(expected),"Unexpected items: \(ids(menu))")
-        precondition(menu.items.allSatisfy { $0.submenu == nil && !$0.isSeparatorItem },"Short item menus never contain Plus or unrelated ref submenus")
+        precondition(menu.items.allSatisfy { $0.submenu == nil },"Short item menus never contain Plus or unrelated ref submenus")
+        if expected != commitIDs { precondition(!menu.items.contains { $0.isSeparatorItem },"Only the fixed commit menu has separators") }
     }
-    let commitIDs = ["addTag","createBranch","cherryPick","copyHash","copyShortHash"]
+    let commitIDs = ["addTag","createBranch","cherryPick","copyHash","copyShortHash","copySubject"]
     let branchIDs = ["checkout","pushBranch","pullBranch","renameBranch","merge","copyBranchName"]
     let tagIDs = ["deleteTag","pushTag","copyTagName"]
     let treeIDs = ["openWorktree","revealWorktree","copyWorktreePath","deleteWorktree"]
     has(controller.commitMenu(at:0)!,commitIDs)
+    let commitMenu = controller.commitMenu(at:0)!
+    precondition(commitMenu.items.map { $0.isSeparatorItem ? "-" : $0.title } == ["Add Tag…","Create Branch…","-","Cherry Pick…","-","Copy Hash","Copy Short Hash","Copy Subject"],"Commit menu keeps its fixed order: \(commitMenu.items.map(\.title))")
     has(controller.branchMenu(reference:"refs/heads/feature",repo:repo)!,branchIDs)
     has(controller.tagMenu(reference:"refs/tags/release-tag",repo:repo)!,tagIDs)
     has(controller.worktreeMenu(tree,repo:repo),treeIDs)
@@ -78,6 +81,37 @@ func checkAdaptiveCommitMenu() throws {
     }
     click(.copyHash,in:controller.commitMenu(at:0)!); precondition(pasteboard.string(forType:.string) == hash)
     click(.copyShortHash,in:controller.commitMenu(at:0)!); precondition(pasteboard.string(forType:.string) == String(hash.prefix(10)))
+    click(.copySubject,in:controller.commitMenu(at:0)!); precondition(pasteboard.string(forType:.string) == "Root")
+    // Each action opens one popup; a success reports what was done and every shown value can be copied.
+    let popup = ActionPopup(title:"Probe",facts:[.init(label:"Commit",value:hash)],parent:nil)
+    var copied: [String] = []; popup.copy = { copied.append($0) }
+    popup.showRunning("Working"); precondition(popup.phase == .running)
+    popup.showFailure("Boom"); precondition(popup.phase == .failure)
+    func copyButtons(_ view: NSView) -> [CallbackButton] { (view as? CallbackButton).map { $0.toolTip?.hasPrefix("Copy") == true ? [$0] : [] } ?? view.subviews.flatMap { copyButtons($0) } }
+    copyButtons(popup.panel.contentView!).forEach { $0.performClick(nil) }
+    precondition(copied == [hash,"Boom"],"Every value and the error text are copyable: \(copied)")
+    func allButtons(_ view: NSView) -> [CallbackButton] { ((view as? CallbackButton).map { [$0] } ?? []) + view.subviews.flatMap { allButtons($0) } }
+    let cross = allButtons(popup.panel.contentView!).first { $0.toolTip == "Close" && !$0.isHidden }
+    precondition(cross != nil && popup.panel.isVisible,"An error popup has a visible close cross")
+    cross!.performClick(nil); precondition(!popup.panel.isVisible,"The cross closes the popup")
+    popup.showSuccess("Done"); precondition(popup.phase == .success && ActionPopup.successDelay == 3)
+    popup.close()
+    // A required field keeps the confirm button greyed out while empty.
+    let field = NSTextField(string: "")
+    let form = ActionPopup(title:"Add Tag",controls:[field],required:[field],parent:nil)
+    var confirmed = 0
+    form.askInput(confirm:"Add Tag") { confirmed += 1 }
+    precondition(!form.canConfirm); field.stringValue = "v1"; precondition(form.canConfirm)
+    form.close()
+    // A stopped operation offers Abort and Continue instead of Back.
+    let conflict = ActionPopup(title:"Cherry Pick",parent:nil)
+    var recovered: [String] = []
+    conflict.showFailure("conflict",back:{},actions:[("Abort",{ recovered.append("abort") }),("Continue",{ recovered.append("continue") })])
+    let titles = allButtons(conflict.panel.contentView!).map(\.title).filter { !$0.isEmpty }
+    precondition(titles == ["Abort","Continue"],"Conflict buttons: \(titles)")
+    allButtons(conflict.panel.contentView!).filter { !$0.title.isEmpty }.forEach { $0.performClick(nil) }
+    precondition(recovered == ["abort","continue"] && confirmed == 0)
+    conflict.close()
     click(.copyWorktreePath,in:controller.worktreeMenu(tree,repo:repo)); precondition(pasteboard.string(forType:.string) == tree.path)
     // Exercise actual badge geometry, including the remote compartment of a combined label.
     controller.table.layoutSubtreeIfNeeded()
