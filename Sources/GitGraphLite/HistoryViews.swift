@@ -226,15 +226,15 @@ final class CommitCell: NSTableCellView {
         let font = NSFont.systemFont(ofSize: 10.5, weight: bold ? .semibold : .regular)
         return ceil((text as NSString).size(withAttributes: [.font: font]).width + (remote.isEmpty ? 0 : (remote as NSString).size(withAttributes: [.font: font]).width+9) + 31)
     }
-    /// One pill for every branch: the same branch icon and name, then one cloud per remote, a local icon, and the worktree icon.
+    /// One pill for every branch: the same branch icon and name, then one cloud per remote, a computer for the local branch, and the worktree icon.
     private func compoundBadge(_ label: ReferenceLabel, tree: GitWorktree?, color: NSColor, x: CGFloat, maxWidth: CGFloat) -> (width: CGFloat, name: NSRect, workspace: NSRect?)? {
         let bold = label.isCurrent
         let nameFont = NSFont.systemFont(ofSize: 10.5, weight: bold ? .semibold : .regular)
         let nameW = textWidth(label.name, font: nameFont)
         let remoteRefs = label.kind == .branch ? Array(label.fullNames.dropFirst()) : label.fullNames
-        let remoteW: CGFloat = remoteRefs.isEmpty ? 0 : CGFloat(remoteRefs.count) * 16
-        let localW: CGFloat = label.kind == .branch ? 16 : 0
-        let workspaceW: CGFloat = tree == nil ? 0 : 22
+        let remoteW: CGFloat = remoteRefs.isEmpty ? 0 : CGFloat(remoteRefs.count) * chipWidth
+        let localW: CGFloat = label.kind == .branch ? chipWidth : 0
+        let workspaceW: CGFloat = tree == nil ? 0 : chipWidth
         let chips = remoteW + localW + workspaceW
         let gap: CGFloat = chips > 0 ? 4 : 5
         let natural = ceil(24 + nameW + gap + chips)
@@ -249,7 +249,7 @@ final class CommitCell: NSTableCellView {
         color.withAlphaComponent(0.07).setFill(); path.fill()
         color.withAlphaComponent(bold ? 1 : 0.6).setStroke(); path.lineWidth = bold ? 1.2 : 0.7; path.stroke()
         path.addClip(); color.setFill(); NSRect(x: box.minX, y: box.minY, width: 19, height: box.height).fill()
-        drawMark("arrow.triangle.branch", tint: .white, in: NSRect(x: x+4, y: box.minY+3.5, width: 11, height: 11))
+        drawMark("arrow.triangle.branch", tint: .white, weight: .bold, pointSize: 11, in: NSRect(x: box.minX, y: box.minY, width: 19, height: box.height))
         let style = NSMutableParagraphStyle(); style.lineBreakMode = .byTruncatingMiddle
         let nameText = NSAttributedString(string: label.name, attributes: [.font: nameFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: style])
         nameText.draw(in: NSRect(x: x+24, y: box.minY+2, width: nameDraw, height: 15))
@@ -263,25 +263,23 @@ final class CommitCell: NSTableCellView {
             NSColor.separatorColor.setStroke(); separator.lineWidth = 1; separator.stroke()
         }
         for (index, ref) in remoteRefs.enumerated() {
-            let chip = NSRect(x: cursor, y: box.minY, width: 16, height: box.height)
-            drawMark("cloud", tint: .secondaryLabelColor, in: chip)
+            let chip = NSRect(x: cursor, y: box.minY, width: chipWidth, height: box.height)
+            drawCloud(tint: watermark, in: chip)
             remoteRegions.append((chip, ref))
             let remoteName = label.remotes.indices.contains(index) ? label.remotes[index] : ref
             regionTips.append((chip, remoteName))
-            cursor += 16
+            cursor += chipWidth
         }
         if localW > 0 {
             let chip = NSRect(x: cursor, y: box.minY, width: localW, height: box.height)
-            drawMark("desktopcomputer", tint: .secondaryLabelColor, in: chip)
+            drawComputer(tint: watermark, in: chip)
             referenceRegions.append((chip, label))
             regionTips.append((chip, "local"))
             cursor += localW
         }
         if let tree, workspaceW > 0 {
             let chip = NSRect(x: cursor, y: box.minY, width: workspaceW, height: box.height)
-            NSColor.systemBlue.withAlphaComponent(tree.isMain ? 0.22 : 0.12).setFill()
-            NSBezierPath(rect: chip).fill()
-            drawMark("square.stack.3d.up", tint: .systemBlue, weight: tree.isMain ? .bold : .regular, in: chip)
+            drawWorktree(tree, in: chip)
             workspaceRect = chip
             regionTips.append((chip, tree.path))
         }
@@ -289,12 +287,51 @@ final class CommitCell: NSTableCellView {
         let nameRect = NSRect(x: box.minX, y: box.minY, width: max(19, nameLimit - box.minX), height: box.height)
         return (width, nameRect, workspaceRect)
     }
-    private func drawMark(_ symbolName: String, tint: NSColor, weight: NSFont.Weight = .regular, pointSize: CGFloat = 11, in chip: NSRect) {
-        let side = min(pointSize, min(chip.width, chip.height) - 2)
-        guard side > 4 else { return }
-        let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: side, weight: weight).applying(.init(paletteColors: [tint])))
-        symbol?.draw(in: NSRect(x: chip.midX-side/2, y: chip.midY-side/2, width: side, height: side), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    /// Wider than the icons so each one is an easy hover and click target.
+    private let chipWidth: CGFloat = 24
+    private var watermark: NSColor { NSColor.labelColor.withAlphaComponent(0.6) }
+    /// Draws a symbol at its natural proportions.
+    private func drawMark(_ symbolName: String, tint: NSColor, weight: NSFont.Weight = .regular, pointSize: CGFloat = 10.5, in chip: NSRect) {
+        guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: pointSize, weight: weight).applying(.init(paletteColors: [tint]))) else { return }
+        let fit = min(1, (chip.width-2)/symbol.size.width, (chip.height-2)/symbol.size.height)
+        let size = NSSize(width: symbol.size.width*fit, height: symbol.size.height*fit)
+        symbol.draw(in: NSRect(x: chip.midX-size.width/2, y: chip.midY-size.height/2, width: size.width, height: size.height), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+    /// The repository root stands out by a bolder black stroke, never by colour.
+    private func drawWorktree(_ tree: GitWorktree, in chip: NSRect) {
+        drawStack(tint: tree.isMain ? .labelColor : watermark, lineWidth: tree.isMain ? 1.6 : 1, in: chip)
+    }
+    // The cloud, computer and stack are hand-drawn so they share one stroke. SF Symbols vary in weight, and their computers have a filled screen.
+    private func center(of chip: NSRect) -> NSPoint { NSPoint(x: floor(chip.midX)+0.5, y: floor(chip.midY)+0.5) }
+    private func strokeOutline(_ path: NSBezierPath, tint: NSColor, lineWidth: CGFloat = 1) {
+        path.lineWidth = lineWidth; path.lineCapStyle = .round; path.lineJoinStyle = .round
+        tint.setStroke(); path.stroke()
+    }
+    private func drawCloud(tint: NSColor, in chip: NSRect) {
+        let c = center(of: chip), path = NSBezierPath()
+        path.move(to: NSPoint(x: c.x-3.6, y: c.y+4))
+        path.curve(to: NSPoint(x: c.x-3.9, y: c.y-1), controlPoint1: NSPoint(x: c.x-7.2, y: c.y+4), controlPoint2: NSPoint(x: c.x-7.2, y: c.y-0.8))
+        path.curve(to: NSPoint(x: c.x+3.6, y: c.y-0.6), controlPoint1: NSPoint(x: c.x-3.2, y: c.y-5.6), controlPoint2: NSPoint(x: c.x+3, y: c.y-5.2))
+        path.curve(to: NSPoint(x: c.x+3.6, y: c.y+4), controlPoint1: NSPoint(x: c.x+7, y: c.y-0.6), controlPoint2: NSPoint(x: c.x+7, y: c.y+4))
+        path.close()
+        strokeOutline(path, tint: tint)
+    }
+    private func drawComputer(tint: NSColor, in chip: NSRect) {
+        let c = center(of: chip)
+        let path = NSBezierPath(roundedRect: NSRect(x: c.x-6, y: c.y-5, width: 12, height: 8), xRadius: 1.2, yRadius: 1.2)
+        path.move(to: NSPoint(x: c.x, y: c.y+3)); path.line(to: NSPoint(x: c.x, y: c.y+5))
+        path.move(to: NSPoint(x: c.x-3, y: c.y+5)); path.line(to: NSPoint(x: c.x+3, y: c.y+5))
+        strokeOutline(path, tint: tint)
+    }
+    private func drawStack(tint: NSColor, lineWidth: CGFloat = 1, in chip: NSRect) {
+        let c = center(of: chip), path = NSBezierPath()
+        path.move(to: NSPoint(x: c.x, y: c.y-5)); path.line(to: NSPoint(x: c.x+5.5, y: c.y-2.5))
+        path.line(to: NSPoint(x: c.x, y: c.y)); path.line(to: NSPoint(x: c.x-5.5, y: c.y-2.5)); path.close()
+        for offset: CGFloat in [0, 2.5] {
+            path.move(to: NSPoint(x: c.x-5.5, y: c.y+offset)); path.line(to: NSPoint(x: c.x, y: c.y+2.5+offset)); path.line(to: NSPoint(x: c.x+5.5, y: c.y+offset))
+        }
+        strokeOutline(path, tint: tint, lineWidth: lineWidth)
     }
     private func badge(_ text: String, remote: String = "", icon: String, color: NSColor, x: CGFloat, width: CGFloat, bold: Bool = false) {
         guard width > 24 else { return }
@@ -363,14 +400,12 @@ final class CommitCell: NSTableCellView {
         }
         // A worktree with no local branch on this row is a stack icon. Its path is the hover text.
         for tree in worktrees where !claimed.contains(tree.path) {
-            let width: CGFloat = 26
+            let width = chipWidth
             guard right-left > width+80 else { break }
             let rect = NSRect(x: left, y: (bounds.height-18)/2, width: width, height: 18)
             worktreeRegions.append((rect, tree))
             regionTips.append((rect, tree.path))
-            NSColor.systemBlue.withAlphaComponent(tree.isMain ? 0.22 : 0.12).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
-            drawMark("square.stack.3d.up", tint: .systemBlue, weight: tree.isMain ? .bold : .regular, in: rect)
+            drawWorktree(tree, in: rect)
             left += width+5
         }
         let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
