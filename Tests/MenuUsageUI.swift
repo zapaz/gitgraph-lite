@@ -187,6 +187,19 @@ func checkAdaptiveCommitMenu() throws {
     controller.diffToggle.state = .on; controller.diffToggleChanged(controller.diffToggle)
     precondition(!controller.detailsPane!.isHidden)
     if let previousDiff { UserDefaults.standard.set(previousDiff, forKey: "showDiff") } else { UserDefaults.standard.removeObject(forKey: "showDiff") }
+    // The branch and worktree path sit in the header, beside a narrow search field; every header control fits at the minimum width.
+    let header = controller.search.superview as! NSStackView
+    precondition(header.arrangedSubviews.contains(controller.currentPathLabel) && header.arrangedSubviews.contains(controller.currentBranchLabel))
+    precondition((header.arrangedSubviews.last as? NSButton)?.title == "Open repo…")
+    precondition(controller.currentWorktreeViews.allSatisfy(\.isHidden) == controller.currentPathLabel.stringValue.isEmpty)
+    controller.currentBranchLabel.stringValue = "feature/a-very-long-branch-name-for-the-header"
+    controller.currentPathLabel.stringValue = "/Users/someone/projects/a/very/long/path/to/the/worktree/folder"
+    for view in controller.currentWorktreeViews { view.isHidden = false }
+    window.setFrame(NSRect(x: oldFrame.minX, y: oldFrame.minY, width: window.minSize.width, height: 900), display: false)
+    window.contentView!.layoutSubtreeIfNeeded()
+    precondition(controller.search.frame.width == 130, "Search width \(controller.search.frame.width)")
+    precondition(header.arrangedSubviews.last!.frame.maxX <= header.bounds.width, "Header overflows at the minimum width")
+    window.setFrame(oldFrame, display: false)
     print("PASS: Pull enabled on local/remote main despite the prod association mismatch; loading still blocks actions")
     print("PASS: one branch menu for every badge zone with a Delete submenu, short typed menus, per-item frequency persistence, legacy counts, disabled guards, full/10-character hashes and exact workspace path; real badge/table right-click routing targets commit/local/remote/tag/worktree correctly")
 }

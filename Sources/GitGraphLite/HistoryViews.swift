@@ -230,7 +230,7 @@ final class CommitCell: NSTableCellView {
         return ceil((text as NSString).size(withAttributes: [.font: font]).width + (remote.isEmpty ? 0 : (remote as NSString).size(withAttributes: [.font: font]).width+9) + 31)
     }
     /// One pill for every branch: the same branch icon and name, then a computer for the local branch, the worktree icon, and one cloud per remote last.
-    private func compoundBadge(_ label: ReferenceLabel, tree: GitWorktree?, color: NSColor, x: CGFloat, maxWidth: CGFloat) -> (width: CGFloat, name: NSRect, workspace: NSRect?)? {
+    private func compoundBadge(_ label: ReferenceLabel, tree: GitWorktree?, localWorktree: GitWorktree? = nil, color: NSColor, x: CGFloat, maxWidth: CGFloat) -> (width: CGFloat, name: NSRect, workspace: NSRect?)? {
         let bold = label.isCurrent
         let nameFont = NSFont.systemFont(ofSize: 10.5, weight: bold ? .semibold : .regular)
         let nameW = textWidth(label.name, font: nameFont)
@@ -267,9 +267,9 @@ final class CommitCell: NSTableCellView {
         }
         if localW > 0 {
             let chip = NSRect(x: cursor, y: box.minY, width: localW, height: box.height)
-            drawComputer(tint: watermark, in: chip)
+            drawComputer(tint: watermark, worktree: localWorktree != nil, in: chip)
             if let local = label.fullNames.first { localRegions.append((chip, local)) }
-            regionTips.append((chip, "Branch \(label.name) available locally"))
+            regionTips.append((chip, "Branch \(label.name) available locally" + (localWorktree.map { "\nWorktree " + $0.path } ?? "")))
             cursor += localW
         }
         if let tree, workspaceW > 0 {
@@ -322,12 +322,18 @@ final class CommitCell: NSTableCellView {
         path.close()
         strokeOutline(path, tint: tint)
     }
-    private func drawComputer(tint: NSColor, in chip: NSRect) {
+    /// A branch checked out in a worktree gets a small "w" on the computer's screen.
+    private func drawComputer(tint: NSColor, worktree: Bool = false, in chip: NSRect) {
         let c = center(of: chip)
         let path = NSBezierPath(roundedRect: NSRect(x: c.x-6, y: c.y-5, width: 12, height: 8), xRadius: 1.2, yRadius: 1.2)
         path.move(to: NSPoint(x: c.x, y: c.y+3)); path.line(to: NSPoint(x: c.x, y: c.y+5))
         path.move(to: NSPoint(x: c.x-3, y: c.y+5)); path.line(to: NSPoint(x: c.x+3, y: c.y+5))
         strokeOutline(path, tint: tint)
+        guard worktree else { return }
+        // Centre the letter's x-height on the screen (the view is flipped: y is the top of the line box).
+        let font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        let mark = NSAttributedString(string: "w", attributes: [.font: font, .foregroundColor: tint])
+        mark.draw(at: NSPoint(x: c.x - mark.size().width/2, y: c.y - 1 + font.xHeight/2 - font.ascender))
     }
     private func drawStack(tint: NSColor, lineWidth: CGFloat = 1, in chip: NSRect) {
         let c = center(of: chip), path = NSBezierPath()
@@ -392,8 +398,8 @@ final class CommitCell: NSTableCellView {
             guard remaining > 45 else { overflow(from: i); break }
             let rest = i < branchLabels.count-1 ? CGFloat(32) : 0
             let tree = label.kind == .branch ? workspace(matching: label) : nil
-            // A branch's worktree has no icon of its own: the branch menu opens, copies and deletes it.
-            guard let drawn = compoundBadge(label, tree: nil, color: branchColor, x: left, maxWidth: remaining-rest) else { overflow(from: i); break }
+            // A branch's worktree has no icon of its own: a "w" on the computer marks it, and the branch menu opens, copies and deletes it.
+            guard let drawn = compoundBadge(label, tree: nil, localWorktree: tree, color: branchColor, x: left, maxWidth: remaining-rest) else { overflow(from: i); break }
             referenceRegions.append((drawn.name, label))
             if let tree { claimed.insert(tree.path) }
             left += drawn.width+5
