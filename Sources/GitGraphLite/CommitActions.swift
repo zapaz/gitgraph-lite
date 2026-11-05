@@ -118,31 +118,6 @@ extension Controller {
             }
         }
     }
-    func openLocalWorkspace(_ branch: String, repo: Repository) {
-        navigateRepository(title: "Opening " + branch, repo: repo) { try Git.openLocalBranch(branch, at: repo.path, expectedSignature: repo.signature) }
-    }
-    func openRemoteWorkspace(_ reference: String, repo: Repository) {
-        navigateRepository(title: "Opening remote branch locally", repo: repo) { try Git.openRemoteBranch(reference, at: repo.path, expectedSignature: repo.signature) }
-    }
-    func createLocalBranchOnly(start: String = "HEAD", remote: String? = nil) {
-        guard let repo = repository, !operationRunning else { return }
-        operationRunning = true; branches.isEnabled = false; more.isEnabled = false; spinner.startAnimation(nil)
-        footer.stringValue = "Creating local branch…"
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                if let remote { return try Git.createLocalBranchFromRemote(remote, at: repo.path, expectedSignature: repo.signature) }
-                return try Git.createLocalBranch(at: repo.path, start: start, expectedSignature: repo.signature)
-            }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.operationRunning = false; self.branches.isEnabled = true; self.more.isEnabled = true; self.spinner.stopAnimation(nil)
-                switch result {
-                case .success: self.refreshNow()
-                case .failure(let error): self.refreshNow(); self.showError(error.localizedDescription)
-                }
-            }
-        }
-    }
     func copyPopup(_ label: String, _ value: String) {
         // The copied value is shown with its own copy button too, like every value in a popup.
         actionPopup(label + " copied") { [weak self] in

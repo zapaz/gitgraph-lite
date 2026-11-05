@@ -265,9 +265,9 @@ final class CommitCell: NSTableCellView {
         }
         if localW > 0 {
             let chip = NSRect(x: cursor, y: box.minY, width: localW, height: box.height)
-            drawComputer(tint: watermark, worktree: localWorktree != nil, in: chip)
+            drawComputer(tint: watermark, worktree: localWorktree, in: chip)
             if let local = label.fullNames.first { localRegions.append((chip, local)) }
-            regionTips.append((chip, "Branch \(label.name) available locally" + (localWorktree.map { "\nWorktree " + $0.path } ?? "")))
+            regionTips.append((chip, "Branch \(label.name) available locally" + (localWorktree.map { ($0.isMain ? "\nMain worktree " : "\nWorktree ") + $0.path } ?? "")))
             cursor += localW
         }
         if let tree, workspaceW > 0 {
@@ -321,16 +321,17 @@ final class CommitCell: NSTableCellView {
         strokeOutline(path, tint: tint)
     }
     /// A branch checked out in a worktree gets a small "w" on the computer's screen.
-    private func drawComputer(tint: NSColor, worktree: Bool = false, in chip: NSRect) {
+    /// The repository root (main worktree) stands out by a heavy black "w"; other worktrees get a lighter grey one.
+    private func drawComputer(tint: NSColor, worktree: GitWorktree? = nil, in chip: NSRect) {
         let c = center(of: chip)
         let path = NSBezierPath(roundedRect: NSRect(x: c.x-6, y: c.y-5, width: 12, height: 8), xRadius: 1.2, yRadius: 1.2)
         path.move(to: NSPoint(x: c.x, y: c.y+3)); path.line(to: NSPoint(x: c.x, y: c.y+5))
         path.move(to: NSPoint(x: c.x-3, y: c.y+5)); path.line(to: NSPoint(x: c.x+3, y: c.y+5))
         strokeOutline(path, tint: tint)
-        guard worktree else { return }
+        guard let worktree else { return }
         // Centre the letter's x-height on the screen (the view is flipped: y is the top of the line box).
-        let font = NSFont.systemFont(ofSize: 8, weight: .bold)
-        let mark = NSAttributedString(string: "w", attributes: [.font: font, .foregroundColor: tint])
+        let font = NSFont.systemFont(ofSize: worktree.isMain ? 8.5 : 8, weight: worktree.isMain ? .heavy : .medium)
+        let mark = NSAttributedString(string: "w", attributes: [.font: font, .foregroundColor: worktree.isMain ? NSColor.labelColor : tint])
         mark.draw(at: NSPoint(x: c.x - mark.size().width/2, y: c.y - 1 + font.xHeight/2 - font.ascender))
     }
     private func drawStack(tint: NSColor, lineWidth: CGFloat = 1, in chip: NSRect) {

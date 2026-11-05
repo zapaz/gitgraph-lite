@@ -41,13 +41,11 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             guard let self, let owner = self.owner else { return }
             owner.allBranchesChanged(self.all)
         }
-        let hint = NSTextField(wrappingLabelWithString: "Select several branches. Local + origin histories are combined. Pinned branches stay visible.")
-        hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         scroll.hasVerticalScroller = true; scroll.drawsBackground = false
-        let stack = NSStackView(views: [search, all, hint, scroll]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
+        let stack = NSStackView(views: [search, all, scroll]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14), stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14), stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 14), stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -14)])
-        for child in [search, hint, scroll] { child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        for child in [search, scroll] { child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
         rebuild()
     }
     func controlTextDidChange(_ obj: Notification) { rebuild() }
@@ -90,35 +88,15 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             pin.isEnabled = !group.mandatoryPin && !owner.operationRunning
             pin.toolTip = group.mandatoryPin ? "Always pinned" : pinned ? "Unpin branch" : "Pin branch"
             pin.widthAnchor.constraint(equalToConstant: 30).isActive = true
-            let remote = group.references.first { $0.hasPrefix("refs/remotes/origin/") } ?? group.references.first { $0.hasPrefix("refs/remotes/") }
-            let local = CallbackButton("Create local") { [weak owner] in
-                guard let owner, let remote, !owner.operationRunning else { return }
-                owner.branchPopover.close(); owner.createLocalBranchOnly(remote: remote)
-            }
-            local.widthAnchor.constraint(equalToConstant: 100).isActive = true
-            local.isHidden = group.localReference != nil
-            local.isEnabled = !owner.loading && !owner.operationRunning && remote != nil
-            local.toolTip = "Create only the local branch, without a workspace."
-            let worktree = CallbackButton("Open") { [weak owner] in
-                guard let owner, !owner.operationRunning else { return }
-                owner.branchPopover.close()
-                if group.localReference != nil { owner.openLocalWorkspace(group.name, repo: repo) }
-                else if let remote { owner.openRemoteWorkspace(remote, repo: repo) }
-            }
-            worktree.isEnabled = !owner.loading && !owner.operationRunning && (tree?.exists ?? true) && tree?.associationIssue == nil
-            worktree.toolTip = tree?.associationIssue ?? tree?.path ?? "Create and open this branch’s dedicated workspace."
-            worktree.widthAnchor.constraint(equalToConstant: 70).isActive = true
             let menu: () -> NSMenu? = { [weak owner] in
                 guard let owner, let current = owner.repository else { return nil }
+                let remote = group.references.first { $0.hasPrefix("refs/remotes/origin/") } ?? group.references.first { $0.hasPrefix("refs/remotes/") }
                 let reference = group.localReference ?? remote
                 return reference.flatMap { owner.branchMenu(reference: $0, repo: current) }
             }
             check.contextMenuProvider = menu; detail.contextMenuProvider = menu
-            worktree.contextMenuProvider = { [weak owner] in
-                guard let owner, let current = owner.repository else { return nil }
-                return tree.map { owner.worktreeMenu($0, repo: current) } ?? menu()
-            }
-            let row = BranchContextRow(views: [name, pin, local, worktree]); row.contextMenuProvider = menu; row.spacing = 8; row.distribution = .fill
+            // Lite: the list only filters and pins. Opening or creating a branch goes through its menu (right-click).
+            let row = BranchContextRow(views: [name, pin]); row.contextMenuProvider = menu; row.spacing = 8; row.distribution = .fill
             row.heightAnchor.constraint(equalToConstant: 44).isActive = true
             name.setContentHuggingPriority(.init(1), for: .horizontal)
             name.setContentCompressionResistancePriority(.init(1), for: .horizontal)

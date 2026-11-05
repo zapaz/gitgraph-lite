@@ -106,7 +106,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         spinner.widthAnchor.constraint(equalToConstant: 16).isActive = true
         spinner.heightAnchor.constraint(equalToConstant: 16).isActive = true
         branches.bezelStyle = .rounded; branches.target = self; branches.action = #selector(showBranchPicker)
-        branches.toolTip = "Filter the commit history. Open or create worktrees from the branch list."
+        branches.toolTip = "Filter the commit history by branch, and pin branches."
         branches.widthAnchor.constraint(equalToConstant: 210).isActive = true
         search.placeholderString = "Search"; search.toolTip = "Search commits, authors or hashes"; search.delegate = self
         search.widthAnchor.constraint(equalToConstant: 130).isActive = true

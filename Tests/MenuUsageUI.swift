@@ -157,6 +157,8 @@ func checkAdaptiveCommitMenu() throws {
     func buttons(_ view: NSView) -> [CallbackButton] {
         (view as? CallbackButton).map { [$0] } ?? view.subviews.flatMap { buttons($0) }
     }
+    // Lite: the branch list only filters and pins; opening or creating a branch goes through its right-click menu.
+    precondition(!buttons(picker.view).contains { ["Open", "Create local"].contains($0.title) }, "Branch list still offers Open or Create local")
     let branchButton = buttons(picker.view).first { $0.title == "feature" }!
     let rightClick = NSEvent.mouseEvent(with:.rightMouseDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:controller.window!.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
     has(branchButton.menu(for:rightClick)!,branchIDs)
