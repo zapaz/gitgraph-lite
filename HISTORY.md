@@ -22,6 +22,7 @@ All published application versions are available from the linked GitHub releases
 
 | Version & download | Release |
 | --- | --- |
+| [v0.15.1](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.15.1) | GitGraph Lite 0.15.1: bold “w” for the root worktree, branch list that only filters and pins |
 | [v0.15.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.15.0) | GitGraph Lite 0.15.0: About popup with an info button, all text in English |
 | [v0.14.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.14.0) | GitGraph Lite 0.14.0: Diff checkbox, branch and worktree folder in the header, “w” mark on worktree branches |
 | [v0.13.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.13.0) | GitGraph Lite 0.13.0: one branch menu with a Delete submenu, Open Branch creates its worktree, confirmed deletes |
