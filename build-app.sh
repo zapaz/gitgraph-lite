@@ -26,8 +26,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>GitGraph Lite</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon.icns</string>
-<key>CFBundleShortVersionString</key><string>0.14.0</string>
-<key>CFBundleVersion</key><string>32</string>
+<key>CFBundleShortVersionString</key><string>0.15.0</string>
+<key>CFBundleVersion</key><string>33</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSDocumentsFolderUsageDescription</key><string>Open and manage Git repositories you choose in Documents.</string>
