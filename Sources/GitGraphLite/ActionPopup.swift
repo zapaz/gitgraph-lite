@@ -26,12 +26,14 @@ final class ActionPopup: NSObject {
     /// Fields that must not be empty: the confirm button stays greyed out until each has text.
     private let required: [NSTextField]
     private weak var confirmButton: NSButton?
+    /// The framed text of an info popup (About).
+    private(set) weak var infoField: NSTextField?
     private var confirmArmed = false
     var copy: (String) -> Void = { text in NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
 
-    init(title: String, detail: String = "", facts initial: [Fact] = [], controls: [NSView] = [], required: [NSTextField] = [], parent: NSWindow?) {
+    init(title: String, detail: String = "", facts initial: [Fact] = [], controls: [NSView] = [], required: [NSTextField] = [], width: CGFloat = 320, parent: NSWindow?) {
         self.required = required
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 100), styleMask: [.titled, .docModalWindow], backing: .buffered, defer: true)
+        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 100), styleMask: [.titled, .docModalWindow], backing: .buffered, defer: true)
         self.parent = parent
         super.init()
         titleField.stringValue = title; titleField.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -64,7 +66,7 @@ final class ActionPopup: NSObject {
             content.trailingAnchor.constraint(equalTo: panel.contentView!.trailingAnchor),
             content.topAnchor.constraint(equalTo: panel.contentView!.topAnchor),
             content.bottomAnchor.constraint(equalTo: panel.contentView!.bottomAnchor),
-            content.widthAnchor.constraint(equalToConstant: 320)
+            content.widthAnchor.constraint(equalToConstant: width)
         ])
         for view in [header, detailField, facts, inputs, message, buttons] { view.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -40).isActive = true }
         setAccessibility()
@@ -116,6 +118,30 @@ final class ActionPopup: NSObject {
         let work = DispatchWorkItem { [weak self] in self?.close() }
         dismissal = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.successDelay, execute: work)
+    }
+    /// Read-only text, such as About: it stays until the cross (or Escape) closes it.
+    func showInfo(_ text: String, image: NSImage? = nil) {
+        phase = .success; closeCross.isHidden = false
+        spinner.stopAnimation(nil); inputs.isHidden = true
+        if let image { icon.image = image; icon.isHidden = false } else { setIcon("info.circle.fill", colors: [.white, .controlAccentColor]) }
+        setMessage(nil)
+        // Larger text in a thin accent-coloured frame.
+        let style = NSMutableParagraphStyle(); style.lineHeightMultiple = 1.15; style.paragraphSpacing = 12
+        // Paragraphs are separated by spacing, not by blank lines.
+        let paragraphs = text.components(separatedBy: "\n\n").joined(separator: "\n")
+        let field = NSTextField(wrappingLabelWithString: "")
+        field.attributedStringValue = NSAttributedString(string: paragraphs, attributes: [.font: NSFont.systemFont(ofSize: 14), .foregroundColor: NSColor.labelColor, .paragraphStyle: style])
+        // Selecting text swaps in a field editor; without this it drops the font and spacing, and the text shrinks on click.
+        field.font = .systemFont(ofSize: 14); field.allowsEditingTextAttributes = true
+        field.isSelectable = true; field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        infoField = field
+        let frame = FramedView(); field.translatesAutoresizingMaskIntoConstraints = false; frame.addSubview(field)
+        NSLayoutConstraint.activate([field.leadingAnchor.constraint(equalTo: frame.leadingAnchor, constant: 18), field.trailingAnchor.constraint(equalTo: frame.trailingAnchor, constant: -18),
+                                     field.topAnchor.constraint(equalTo: frame.topAnchor, constant: 16), field.bottomAnchor.constraint(equalTo: frame.bottomAnchor, constant: -14)])
+        message.addArrangedSubview(frame); message.isHidden = false
+        frame.widthAnchor.constraint(equalTo: message.widthAnchor).isActive = true
+        setButtons([])
+        present()
     }
     /// An error stays on screen. When the action had inputs, Back returns to them with the typed values kept.
     /// `actions` replace Back with recovery buttons, such as Abort and Continue after a conflict.
@@ -198,6 +224,18 @@ final class ActionPopup: NSObject {
         }
         buttons.isHidden = list.isEmpty
         return made
+    }
+}
+
+/// A thin accent-coloured frame with rounded corners; its colours follow light and dark mode.
+final class FramedView: NSView {
+    override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true }
+    required init?(coder: NSCoder) { fatalError() }
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.cornerRadius = 8; layer?.borderWidth = 1
+        layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.55).cgColor
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.05).cgColor
     }
 }
 

@@ -99,6 +99,8 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         repoSubtitle.widthAnchor.constraint(lessThanOrEqualToConstant: 190).isActive = true
         repoSubtitle.setContentCompressionResistancePriority(.init(250), for: .horizontal)
         let open = NSButton(title: "Open repo…", target: self, action: #selector(openRepository)); open.bezelStyle = .rounded; open.toolTip = "Open Repository (⌘O)"
+        let about = NSButton(image: NSImage(systemSymbolName: "info.circle", accessibilityDescription: "About GitGraph Lite")!, target: self, action: #selector(showAbout))
+        about.bezelStyle = .rounded; about.toolTip = "About GitGraph Lite"
         let refresh = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")!, target: self, action: #selector(refreshNow)); refresh.bezelStyle = .rounded; refresh.toolTip = "Refresh (⌘R)"
         spinner.style = .spinning; spinner.controlSize = .small; spinner.isDisplayedWhenStopped = false
         spinner.widthAnchor.constraint(equalToConstant: 16).isActive = true
@@ -140,7 +142,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         currentWorktreeViews = [branchIcon, currentBranchLabel, copyBranch, folderIcon, currentPathLabel, copyPath]
         for view in currentWorktreeViews { view.isHidden = true }
         let header = NSStackView(views: [logo, repoTitle, repoSubtitle, branchIcon, currentBranchLabel, copyBranch, folderIcon, currentPathLabel, copyPath, spacer,
-                                         branches, groupingToggle, pinnedBranchesToggle, diffToggle, search, spinner, refresh, open])
+                                         branches, groupingToggle, pinnedBranchesToggle, diffToggle, search, spinner, refresh, open, about])
         header.orientation = .horizontal; header.alignment = .centerY; header.distribution = .fill; header.spacing = 8
         for view in [repoSubtitle, copyBranch] { header.setCustomSpacing(14, after: view) }
         for view in [branchIcon, folderIcon, currentBranchLabel, currentPathLabel] { header.setCustomSpacing(3, after: view) }
@@ -224,6 +226,26 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         setDiff("Open a repository, then select a commit and a file.\nRight-click a commit for Git actions.")
     }
 
+    static let aboutText = """
+    Are you an AI dev expert? GitGraph Lite is the tool you need! Manage your Git repository and its worktrees in a visual graph.
+
+    Each local branch you open has its own worktree. The branch and its folder stay linked: a worktree never switches branch, so each task keeps its own files.
+
+    Inspired by the Git Graph extension for VS Code, augmented with worktree management and built for AI development.
+    """
+    /// "Version 0.14.0 (32)" from the app bundle; a build run outside the bundle has none.
+    static var versionText: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        guard let version = info["CFBundleShortVersionString"] as? String else { return "Development build" }
+        return "Version \(version)" + ((info["CFBundleVersion"] as? String).map { " (\($0))" } ?? "")
+    }
+    /// About: name and version first, then the app's principles in a frame.
+    @discardableResult @objc func showAbout() -> ActionPopup {
+        let popup = ActionPopup(title: "GitGraph Lite", detail: Self.versionText, width: 500, parent: window)
+        let appIcon = Bundle.main.path(forResource: "AppIcon", ofType: "icns").flatMap { NSImage(contentsOfFile: $0) }
+        popup.showInfo(Self.aboutText, image: appIcon)
+        return popup
+    }
     @objc func diffToggleChanged(_ sender: NSButton) {
         showDiff = sender.state == .on
         UserDefaults.standard.set(showDiff, forKey: "showDiff")
@@ -355,7 +377,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
             let folded = groupHeaders.values
             if !folded.isEmpty {
                 let hidden = folded.reduce(0) { $0 + $1.hiddenCount }
-                footer.stringValue += " · \(folded.count) \(folded.count == 1 ? "groupe replié" : "groupes repliés") (\(hidden) commit\(hidden == 1 ? "" : "s"))"
+                footer.stringValue += " · \(folded.count) folded \(folded.count == 1 ? "group" : "groups") (\(hidden) commit\(hidden == 1 ? "" : "s"))"
             }
         }
         more.isHidden = commits.count < limit
@@ -389,7 +411,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                 }
             }
             cell.isHead = c.id == activeHead
-            let actionLabel = groupControls[row].map { "\(folded ? "Déplier" : "Replier") \($0.hiddenCount) commits" }
+            let actionLabel = groupControls[row].map { "\(folded ? "Unfold" : "Fold") \($0.hiddenCount) commits" }
             cell.toolTip = c.id + (cell.isHead ? " · Current worktree HEAD" : "") + (actionLabel.map { "\n\(folded ? "+" : "−") : " + $0 } ?? "")
             cell.setAccessibilityLabel(actionLabel.map { $0 + " · " + c.subject })
             cell.needsDisplay = true; return cell
@@ -520,7 +542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let item = NSMenuItem(); item.title = title; let sub = NSMenu(title: title); item.submenu = sub; menu.addItem(item); return sub
         }
         let app = submenu("GitGraph Lite")
-        app.addItem(withTitle: "About GitGraph Lite", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "About GitGraph Lite", action: #selector(Controller.showAbout), keyEquivalent: "").target = controller
         app.addItem(.separator()); app.addItem(withTitle: "Quit GitGraph Lite", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let file = submenu("File")
         let open = file.addItem(withTitle: "Open Repository…", action: #selector(Controller.openRepository), keyEquivalent: "o"); open.target = controller

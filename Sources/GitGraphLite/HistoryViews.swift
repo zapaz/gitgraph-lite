@@ -147,7 +147,7 @@ final class CommitCell: NSTableCellView {
         if !handleFoldClick(at: convert(event.locationInWindow, from: nil)) { super.mouseDown(with: event) }
     }
     var foldSuffix: String {
-        foldedCount > 0 ? " (\(foldedCount) commit\(foldedCount == 1 ? "" : "s") plié\(foldedCount == 1 ? "" : "s"))" : ""
+        foldedCount > 0 ? " (\(foldedCount) commit\(foldedCount == 1 ? "" : "s") folded)" : ""
     }
     private func workspace(matching label: ReferenceLabel) -> GitWorktree? {
         guard label.kind == .branch else { return nil }
@@ -158,21 +158,19 @@ final class CommitCell: NSTableCellView {
         guard let activePath else { return false }
         return Git.samePath(tree.path, activePath)
     }
-    private func fileCount(_ count: Int) -> String { count == 1 ? "1 fichier" : "\(count) fichiers" }
     private func workspaceProse(_ tree: GitWorktree) -> String {
-        if tree.associationIssue != nil { return "association incohérente" }
-        if !tree.exists { return "dossier absent" }
-        if tree.isLocked { return "verrouillé" }
+        if tree.associationIssue != nil { return "association changed" }
+        if !tree.exists { return "folder missing" }
+        if tree.isLocked { return "locked" }
         switch tree.changedFiles {
-        case let count? where count > 0: return count == 1 ? "1 fichier modifié" : "\(count) fichiers modifiés"
-        case .some: return "propre"
-        case nil: return "état indisponible"
+        case let count? where count > 0: return count == 1 ? "1 changed file" : "\(count) changed files"
+        case .some: return "clean"
+        case nil: return "status unavailable"
         }
     }
     private func originClause(_ remotes: [String]) -> String {
-        guard let first = remotes.first?.lowercased().first else { return "" }
-        let names = remotes.joined(separator: ", ")
-        return "aeiouyàâäéèêëîïôöùûüh".contains(first) ? ", au même commit qu'\(names)" : ", au même commit que \(names)"
+        guard !remotes.isEmpty else { return "" }
+        return ", at the same commit as " + remotes.joined(separator: ", ")
     }
     private func relationTooltip() -> String {
         var lines: [String] = []
@@ -180,25 +178,25 @@ final class CommitCell: NSTableCellView {
         var claimed = Set<String>()
         for label in labels where label.kind != .tag {
             if label.kind == .remote {
-                let whereRemote = label.remotes.isEmpty ? "" : " sur " + label.remotes.joined(separator: ", ")
-                lines.append("\(label.name) pointe ce commit\(whereRemote). Pas de branche locale, pas de dossier.")
+                let whereRemote = label.remotes.isEmpty ? "" : " on " + label.remotes.joined(separator: ", ")
+                lines.append("\(label.name) points to this commit\(whereRemote). No local branch, no folder.")
                 continue
             }
             let same = originClause(label.remotes)
             if let tree = workspace(matching: label) {
                 claimed.insert(tree.path)
-                let place = isCurrentWorkspace(tree) ? "dans cette fenêtre (\(tree.path))" : "dans \(tree.path)"
-                lines.append("\(label.name) est ouvert \(place), \(workspaceProse(tree))\(same).")
+                let place = isCurrentWorkspace(tree) ? "in this window (\(tree.path))" : "in \(tree.path)"
+                lines.append("\(label.name) is open \(place), \(workspaceProse(tree))\(same).")
             } else {
-                lines.append("\(label.name) n'a pas encore de dossier\(same).")
+                lines.append("\(label.name) has no folder yet\(same).")
             }
         }
         for tree in worktrees where !claimed.contains(tree.path) {
-            if tree.branch == nil { lines.append("Worktree détaché sur \(String(tree.head.prefix(8))). \(tree.path)") }
-            else { lines.append("\(tree.branchLabel) est ouvert dans \(tree.path), \(workspaceProse(tree)).") }
+            if tree.branch == nil { lines.append("Detached worktree at \(String(tree.head.prefix(8))). \(tree.path)") }
+            else { lines.append("\(tree.branchLabel) is open in \(tree.path), \(workspaceProse(tree)).") }
         }
         for tag in labels where tag.kind == .tag { lines.append("Tag \(tag.name)") }
-        if foldedCount >= 2 { lines.append("Cliquer sur le compteur pour déplier cette suite.") }
+        if foldedCount >= 2 { lines.append("Click the count to unfold this chain.") }
         return lines.joined(separator: "\n")
     }
     private func accessibilitySummary() -> String {

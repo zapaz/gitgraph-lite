@@ -190,7 +190,22 @@ func checkAdaptiveCommitMenu() throws {
     // The branch and worktree path sit in the header, beside a narrow search field; every header control fits at the minimum width.
     let header = controller.search.superview as! NSStackView
     precondition(header.arrangedSubviews.contains(controller.currentPathLabel) && header.arrangedSubviews.contains(controller.currentBranchLabel))
-    precondition((header.arrangedSubviews.last as? NSButton)?.title == "Open repo…")
+    precondition(header.arrangedSubviews.contains { ($0 as? NSButton)?.title == "Open repo…" })
+    precondition((header.arrangedSubviews.last as? NSButton)?.action == #selector(Controller.showAbout))
+    // About opens one read-only popup (no buttons, no auto-close): name, version, then three paragraphs; the cross closes it.
+    let help = controller.showAbout()
+    precondition(help.phase == .success && help.panel.sheetParent === window && Controller.aboutText.components(separatedBy: "\n\n").count == 3)
+    // Clicking the text starts a selection; it must keep its 14pt font instead of shrinking.
+    let helpField = help.infoField!; let helpHeight = helpField.fittingSize.height
+    let editor = help.panel.fieldEditor(true, for: helpField) as! NSTextView
+    helpField.cell!.select(withFrame: helpField.bounds, in: helpField, editor: editor, delegate: helpField, start: 0, length: 0)
+    let editorFont = editor.textStorage!.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+    precondition(editorFont?.pointSize == 14, "About text font while selected: \(String(describing: editorFont?.pointSize))")
+    let editorStyle = editor.textStorage!.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+    precondition(editorStyle?.paragraphSpacing == 12, "About paragraph spacing lost while selected")
+    helpField.cell!.endEditing(editor)
+    precondition(abs(helpField.fittingSize.height - helpHeight) < 1, "About text height changed on click")
+    help.close()
     precondition(controller.currentWorktreeViews.allSatisfy(\.isHidden) == controller.currentPathLabel.stringValue.isEmpty)
     controller.currentBranchLabel.stringValue = "feature/a-very-long-branch-name-for-the-header"
     controller.currentPathLabel.stringValue = "/Users/someone/projects/a/very/long/path/to/the/worktree/folder"

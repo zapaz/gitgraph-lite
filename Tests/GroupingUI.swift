@@ -40,7 +40,7 @@ func checkGroupingControls() {
         precondition(controller.tableView(controller.table, shouldSelectRow: 0))
         let column = controller.table.tableColumns.first { $0.identifier.rawValue == "subject" }!
         let cell = controller.tableView(controller.table, viewFor: column, row: 0) as! CommitCell
-        precondition(cell.foldSuffix == " (54 commits pliés)")
+        precondition(cell.foldSuffix == " (54 commits folded)")
         let graphColumn = controller.table.tableColumns.first { $0.identifier.rawValue == "graph" }!
         let foldedGraph = controller.tableView(controller.table, viewFor: graphColumn, row: 0) as! GraphCell
         precondition(foldedGraph.isFolded && foldedGraph.foldAction != nil, "A folded tail, including a root tail, exposes the plus control")
@@ -125,7 +125,7 @@ func checkGroupingControls() {
     precondition(!controller.groupsFolded && controller.groupingToggle.state == .off)
     precondition(controller.collapsedGroups == ["a0"] && controller.expandedGroups.isEmpty)
     precondition(controller.visibleIndices.map { controller.commits[$0].id } == ["a0", "b0", "b1", "b2", "root"])
-    precondition(controller.footer.stringValue.contains("1 groupe replié (2 commits)"), "Footer includes individual folds even when the global default is expanded")
+    precondition(controller.footer.stringValue.contains("1 folded group (2 commits)"), "Footer includes individual folds even when the global default is expanded")
     // Repeating the same command must be idempotent, not toggle twice.
     controller.foldGroup("a0")
     precondition(controller.collapsedGroups == ["a0"] && controller.visibleIndices.count == 5)
