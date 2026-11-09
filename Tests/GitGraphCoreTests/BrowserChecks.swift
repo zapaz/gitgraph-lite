@@ -83,7 +83,13 @@ func checkFileTree() {
     XCTAssertTrue(!collapsed.contains { $0.path == "Sources/Core/Git.swift" }); XCTAssertTrue(collapsed.contains { $0.path == "Sources/UI/Tree.swift" })
     XCTAssertEqual(FileTreeRow.make(files, tree: false).map(\.fileIndex), [0, 1, 2, 3])
     XCTAssertTrue(FileTreeRow.make([], tree: true).isEmpty)
-    print("PASS: file tree ordering, nesting, folder collapse, Unicode paths and original diff indices in both modes")
+    XCTAssertEqual(tree.map(\.name), ["Sources", "Core", "é\tname.swift", "Git.swift", "UI", "Tree.swift", "README.md"])
+    let chain = FileTreeRow.make([ChangedFile(status: "M", path: "Sources/App/UI/View.swift"), ChangedFile(status: "A", path: "Sources/App/UI/Cell.swift"), ChangedFile(status: "M", path: "Package.swift")], tree: true)
+    XCTAssertEqual(chain.map(\.name), ["Sources/App/UI", "Cell.swift", "View.swift", "Package.swift"])
+    XCTAssertEqual(chain.map(\.path), ["Sources/App/UI", "Sources/App/UI/Cell.swift", "Sources/App/UI/View.swift", "Package.swift"])
+    XCTAssertEqual(chain.map(\.depth), [0, 1, 1, 0])
+    XCTAssertEqual(FileTreeRow.make([ChangedFile(status: "M", path: "Sources/App/UI/View.swift")], tree: true, collapsed: ["Sources/App/UI"]).map(\.name), ["Sources/App/UI"])
+    print("PASS: file tree ordering, nesting, single-folder chains, folder collapse, Unicode paths and original diff indices in both modes")
 }
 
 func checkInterleavedHistoryGroups() {

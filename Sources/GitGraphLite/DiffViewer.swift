@@ -53,6 +53,9 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
     var currentChange = -1
     var preferredWidth: CGFloat = 0
     var syncingScroll = false
+    /// Called after the user switches between Side by side and Unified.
+    var onModeChange: (() -> Void)?
+    var isUnified: Bool { mode.selectedSegment == 1 }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -60,7 +63,8 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         title.setContentHuggingPriority(.defaultLow, for: .horizontal)
         stats.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
-        mode.selectedSegment = UserDefaults.standard.integer(forKey: "diffMode")
+        // Unified (1) until the user picks another mode.
+        mode.selectedSegment = UserDefaults.standard.object(forKey: "diffMode") as? Int ?? 1
         mode.target = self; mode.action = #selector(diffModeChanged); mode.controlSize = .small
         mode.widthAnchor.constraint(equalToConstant: 150).isActive = true
         previous.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: "Previous change")
@@ -71,6 +75,7 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
         wrap.setButtonType(.pushOnPushOff); wrap.bezelStyle = .rounded; wrap.controlSize = .small
         wrap.state = UserDefaults.standard.object(forKey: "unifiedWrap") == nil || UserDefaults.standard.bool(forKey: "unifiedWrap") ? .on : .off
         wrap.target = self; wrap.action = #selector(toggleWrap); wrap.toolTip = "Wrap long lines in unified view"
+        wrap.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         unified.setWrapped(wrap.state == .on)
         copy.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy patch")
         copy.bezelStyle = .rounded; copy.controlSize = .small; copy.target = self; copy.action = #selector(copyPatch); copy.toolTip = "Copy the original Git patch"
@@ -153,7 +158,7 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
         copy.isEnabled = !patch.isEmpty && !patch.hasSuffix("\n\n[Preview truncated at 2 MB]")
         copy.toolTip = copy.isEnabled ? "Copy the original Git patch" : patch.isEmpty ? "Select a changed file to copy its patch" : "Preview is truncated; export the complete patch with Git"
     }
-    @objc func diffModeChanged() { UserDefaults.standard.set(mode.selectedSegment, forKey: "diffMode"); updateVisibility() }
+    @objc func diffModeChanged() { UserDefaults.standard.set(mode.selectedSegment, forKey: "diffMode"); updateVisibility(); onModeChange?() }
     @objc func previousChange() { navigate(-1) }
     @objc func nextChange() { navigate(1) }
     @objc func toggleWrap() { unified.setWrapped(wrap.state == .on); UserDefaults.standard.set(wrap.state == .on, forKey: "unifiedWrap") }

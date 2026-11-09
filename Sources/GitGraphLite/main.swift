@@ -12,6 +12,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     let footer = NSTextField(labelWithString: "Open a local Git repository to begin.")
     let detailTitle = NSTextField(labelWithString: "Select a commit to inspect its changes")
     let fileTitle = NSTextField(labelWithString: "FILES")
+    let messageTitle = NSTextField(labelWithString: "DESCRIPTION")
     let search = NSSearchField()
     let branches = NSButton(title: "All branches ▾", target: nil, action: nil)
     let branchPopover = NSPopover()
@@ -26,6 +27,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var currentWorktreeViews: [NSView] = []
     var mainSplit: NSSplitView?
     var detailsPane: NSView?
+    var unifiedLayout: [NSLayoutConstraint] = [], sideBySideLayout: [NSLayoutConstraint] = []
     var expandedGroups = Set<String>()
     var collapsedGroups = Set<String>()
     var groupsFolded = UserDefaults.standard.object(forKey: "groupCommits") as? Bool ?? true
@@ -171,37 +173,64 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         let detailHeader = NSStackView(views: [detailTitle]); detailHeader.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 7, right: 20)
         detailHeader.heightAnchor.constraint(equalToConstant: 32).isActive = true
         details.addArrangedSubview(detailHeader)
-        message.isEditable = false; message.isSelectable = true; message.drawsBackground = false; message.font = .systemFont(ofSize: 11)
-        message.frame = NSRect(x: 0, y: 0, width: 1000, height: 55)
+        details.addArrangedSubview(separator())
+        func paneHeader(_ views: [NSView]) -> NSStackView {
+            let header = NSStackView(views: views); header.spacing = 12; header.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+            header.heightAnchor.constraint(equalToConstant: 28).isActive = true
+            return header
+        }
+        // Description and files share one row, half the width each; the diff fills the space below.
+        let messagePane = NSStackView(); messagePane.orientation = .vertical; messagePane.alignment = .leading; messagePane.spacing = 0; messagePane.distribution = .fill
+        messageTitle.font = .systemFont(ofSize: 10, weight: .semibold); messageTitle.textColor = .secondaryLabelColor
+        messagePane.addArrangedSubview(paneHeader([messageTitle]))
+        message.isEditable = false; message.isSelectable = true; message.drawsBackground = false; message.font = .systemFont(ofSize: 12)
+        message.frame = NSRect(x: 0, y: 0, width: 600, height: 100)
         message.isVerticallyResizable = true; message.autoresizingMask = [.width]
         message.textContainer?.widthTracksTextView = true
-        message.textContainerInset = NSSize(width: 15, height: 4)
-        let messageScroll = NSScrollView(); messageScroll.hasVerticalScroller = true; messageScroll.documentView = message
-        messageScroll.heightAnchor.constraint(equalToConstant: 55).isActive = true
-        details.addArrangedSubview(messageScroll); details.addArrangedSubview(separator())
+        message.textContainerInset = NSSize(width: 7, height: 2)
+        let messageScroll = NSScrollView(); messageScroll.hasVerticalScroller = true; messageScroll.drawsBackground = false; messageScroll.documentView = message
+        messagePane.addArrangedSubview(messageScroll)
 
-        let bottom = NSSplitView(); bottom.isVertical = true; bottom.dividerStyle = .thin
         let filePane = NSStackView(); filePane.orientation = .vertical; filePane.alignment = .leading; filePane.spacing = 0; filePane.distribution = .fill
         fileTitle.font = .systemFont(ofSize: 10, weight: .semibold); fileTitle.textColor = .secondaryLabelColor
-        fileMode.selectedSegment = fileTreeMode ? 0 : 1; fileMode.target = self; fileMode.action = #selector(fileModeChanged); fileMode.controlSize = .small
-        let fileHeader = NSStackView(views: [fileTitle, fileMode]); fileHeader.spacing = 12; fileHeader.edgeInsets = NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)
-        fileHeader.heightAnchor.constraint(equalToConstant: 32).isActive = true
-        filePane.addArrangedSubview(fileHeader)
-        fileTable.delegate = self; fileTable.dataSource = self; fileTable.rowHeight = 27; fileTable.headerView = nil
-        let fileCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("file")); fileCol.width = 260; fileTable.addTableColumn(fileCol)
+        fileMode.selectedSegment = fileTreeMode ? 0 : 1; fileMode.target = self; fileMode.action = #selector(fileModeChanged); fileMode.controlSize = .mini
+        filePane.addArrangedSubview(paneHeader([fileTitle, fileMode]))
+        fileTable.delegate = self; fileTable.dataSource = self; fileTable.rowHeight = 22; fileTable.headerView = nil
+        fileTable.intercellSpacing = NSSize(width: 0, height: 0); fileTable.style = .plain
+        fileTable.target = self; fileTable.action = #selector(fileRowClicked)
+        let fileCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("file")); fileCol.width = 260; fileCol.resizingMask = .autoresizingMask; fileTable.addTableColumn(fileCol)
+        fileTable.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         let fileScroll = NSScrollView(); fileScroll.hasVerticalScroller = true; fileScroll.documentView = fileTable
         filePane.addArrangedSubview(fileScroll)
-        filePane.widthAnchor.constraint(greaterThanOrEqualToConstant: 170).isActive = true
-        bottom.addArrangedSubview(filePane)
-        bottom.addArrangedSubview(diffViewer)
-        details.addArrangedSubview(bottom)
+
+        let divider = NSBox(); divider.boxType = .separator; divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        let infoRow = NSStackView(views: [messagePane, divider, filePane]); infoRow.orientation = .horizontal; infoRow.spacing = 0; infoRow.distribution = .fill; infoRow.alignment = .top
+        messagePane.widthAnchor.constraint(equalTo: filePane.widthAnchor).isActive = true
+        for pane in [messagePane, divider, filePane] { pane.heightAnchor.constraint(equalTo: infoRow.heightAnchor).isActive = true }
+        for pane in [messagePane, filePane] { for child in pane.arrangedSubviews { child.widthAnchor.constraint(equalTo: pane.widthAnchor).isActive = true } }
+        // Unified diff: description, files and diff on one row (¼, ¼, ½).
+        // Side by side: description and files on one row (½ each), the diff below at full width.
+        let body = NSView(), bodyDivider = NSBox(); bodyDivider.boxType = .separator
+        for view in [infoRow, bodyDivider, diffViewer] { view.translatesAutoresizingMaskIntoConstraints = false; body.addSubview(view) }
+        NSLayoutConstraint.activate([infoRow.leadingAnchor.constraint(equalTo: body.leadingAnchor), infoRow.topAnchor.constraint(equalTo: body.topAnchor),
+                                     diffViewer.trailingAnchor.constraint(equalTo: body.trailingAnchor), diffViewer.bottomAnchor.constraint(equalTo: body.bottomAnchor)])
+        unifiedLayout = [infoRow.bottomAnchor.constraint(equalTo: body.bottomAnchor), infoRow.widthAnchor.constraint(equalTo: body.widthAnchor, multiplier: 0.5),
+                         bodyDivider.leadingAnchor.constraint(equalTo: infoRow.trailingAnchor), bodyDivider.topAnchor.constraint(equalTo: body.topAnchor), bodyDivider.bottomAnchor.constraint(equalTo: body.bottomAnchor), bodyDivider.widthAnchor.constraint(equalToConstant: 1),
+                         diffViewer.leadingAnchor.constraint(equalTo: bodyDivider.trailingAnchor), diffViewer.topAnchor.constraint(equalTo: body.topAnchor)]
+        sideBySideLayout = [infoRow.trailingAnchor.constraint(equalTo: body.trailingAnchor), infoRow.heightAnchor.constraint(equalToConstant: 150),
+                            bodyDivider.topAnchor.constraint(equalTo: infoRow.bottomAnchor), bodyDivider.leadingAnchor.constraint(equalTo: body.leadingAnchor), bodyDivider.trailingAnchor.constraint(equalTo: body.trailingAnchor), bodyDivider.heightAnchor.constraint(equalToConstant: 1),
+                            diffViewer.topAnchor.constraint(equalTo: bodyDivider.bottomAnchor), diffViewer.leadingAnchor.constraint(equalTo: body.leadingAnchor)]
+        diffViewer.onModeChange = { [weak self] in self?.applyDetailsLayout() }
+        applyDetailsLayout()
+        details.addArrangedSubview(body)
+        body.setContentHuggingPriority(.init(1), for: .vertical)
 
         let split = NSSplitView(); split.isVertical = false; split.dividerStyle = .thin
         split.addArrangedSubview(graphScroll); split.addArrangedSubview(details)
         // No separator box in this pane: inside the split it pinned the window to a fixed width.
         mainSplit = split; detailsPane = details; details.isHidden = !showDiff
         graphScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
-        let detailsMinimum = details.heightAnchor.constraint(greaterThanOrEqualToConstant: 200); detailsMinimum.priority = .init(999); detailsMinimum.isActive = true
+        let detailsMinimum = details.heightAnchor.constraint(greaterThanOrEqualToConstant: 330); detailsMinimum.priority = .init(999); detailsMinimum.isActive = true
         outer.addArrangedSubview(split)
         outer.addArrangedSubview(separator())
         footer.font = .systemFont(ofSize: 11); footer.textColor = .secondaryLabelColor
@@ -214,14 +243,11 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         outer.addArrangedSubview(foot)
         for child in outer.arrangedSubviews { child.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true }
         for child in details.arrangedSubviews { child.widthAnchor.constraint(equalTo: details.widthAnchor).isActive = true }
-        for child in filePane.arrangedSubviews { child.widthAnchor.constraint(equalTo: filePane.widthAnchor).isActive = true }
         split.setContentHuggingPriority(.init(1), for: .vertical)
-        bottom.setContentHuggingPriority(.init(1), for: .vertical)
-        root.layoutSubtreeIfNeeded(); split.setPosition(350, ofDividerAt: 0); bottom.setPosition(290, ofDividerAt: 0)
+        root.layoutSubtreeIfNeeded(); split.setPosition(350, ofDividerAt: 0)
         DispatchQueue.main.async {
             root.layoutSubtreeIfNeeded()
             if self.showDiff { split.setPosition(split.bounds.height * 0.48, ofDividerAt: 0) }
-            bottom.setPosition(280, ofDividerAt: 0)
         }
         setDiff("Open a repository, then select a commit and a file.\nRight-click a commit for Git actions.")
     }
@@ -253,6 +279,11 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         details.isHidden = !showDiff
         split.adjustSubviews()
         if showDiff { split.layoutSubtreeIfNeeded(); split.setPosition(split.bounds.height * 0.48, ofDividerAt: 0) }
+    }
+    /// Swaps the details layout to match the diff mode (see buildUI).
+    func applyDetailsLayout() {
+        NSLayoutConstraint.deactivate(unifiedLayout + sideBySideLayout)
+        NSLayoutConstraint.activate(diffViewer.isUnified ? unifiedLayout : sideBySideLayout)
     }
     func separator() -> NSView {
         let line = NSBox(); line.boxType = .separator; line.heightAnchor.constraint(equalToConstant: 1).isActive = true; return line
