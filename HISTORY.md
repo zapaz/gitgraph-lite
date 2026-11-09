@@ -6,6 +6,7 @@ All published application versions are available from the linked GitHub releases
 
 ## Recent milestones
 
+- **0.16** — Unified diff by default with description, files and diff on one row; side by side puts the diff below. Redesigned file tree with guides, icons and status letters.
 - **0.15** — **About** popup (ⓘ button and app menu) with the version and the app's principles; every label and tooltip in English.
 - **0.14** — **Diff** checkbox to hide or show the commit details and diff; the window's branch and worktree folder (each copyable) move into the header beside a compact search field and **Open repo…**; a small “w” on the computer icon marks a branch with a worktree, whose path appears on hover.
 - **0.13** — One branch menu on every part of a branch badge, with a **Delete** submenu (local + origin, local, remote, worktree); **Open Branch** creates the worktree when needed; every delete asks for confirmation; Lite tag menu (Delete Tag, Push, Copy Name) across all remotes.
@@ -22,6 +23,7 @@ All published application versions are available from the linked GitHub releases
 
 | Version & download | Release |
 | --- | --- |
+| [v0.16.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.16.0) | GitGraph Lite 0.16.0: details laid out by diff mode, unified by default, redesigned file tree |
 | [v0.15.1](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.15.1) | GitGraph Lite 0.15.1: bold “w” for the root worktree, branch list that only filters and pins |
 | [v0.15.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.15.0) | GitGraph Lite 0.15.0: About popup with an info button, all text in English |
 | [v0.14.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.14.0) | GitGraph Lite 0.14.0: Diff checkbox, branch and worktree folder in the header, “w” mark on worktree branches |
