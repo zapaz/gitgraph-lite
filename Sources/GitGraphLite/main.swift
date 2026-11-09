@@ -65,6 +65,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     var base: String?
     var loadID = UUID(), detailID = UUID(), patchID = UUID()
     var loading = false, checking = false, rebuilding = false
+    var fetchIssue: String?
     var operationRunning = false { didSet { updateBranchButton() } }
     var detailsRepositoryPath: String?
     var worktreeManager: WorktreeManager?
@@ -107,7 +108,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         let open = NSButton(title: "Open repo…", target: self, action: #selector(openRepository)); open.bezelStyle = .rounded; open.toolTip = "Open Repository (⌘O)"
         let about = NSButton(image: NSImage(systemSymbolName: "info.circle", accessibilityDescription: "About GitGraph Lite")!, target: self, action: #selector(showAbout))
         about.bezelStyle = .rounded; about.toolTip = "About GitGraph Lite"
-        let refresh = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")!, target: self, action: #selector(refreshNow)); refresh.bezelStyle = .rounded; refresh.toolTip = "Refresh (⌘R)"
+        let refresh = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")!, target: self, action: #selector(refreshAll)); refresh.bezelStyle = .rounded; refresh.toolTip = "Refresh (⌘R): fetch every remote, then reload"
         spinner.style = .spinning; spinner.controlSize = .small; spinner.isDisplayedWhenStopped = false
         spinner.widthAnchor.constraint(equalToConstant: 16).isActive = true
         spinner.heightAnchor.constraint(equalToConstant: 16).isActive = true
@@ -323,11 +324,27 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
 
     func open(_ path: String, focusHead: Bool = false) {
         guard !operationRunning else { return }
-        worktreeManager?.close()
+        worktreeManager?.close(); fetchIssue = nil
         limit = 500; expandedGroups.removeAll(); collapsedGroups.removeAll(); branchSelection = nil; branchPopover.close(); search.stringValue = ""
         refresh(path: path, switching: true, focusHead: focusHead)
     }
     @objc func refreshNow() { guard !operationRunning else { return }; if let path = repository?.path { refresh(path: path) } else { openRepository() } }
+    /// Refresh button and ⌘R: fetch every remote first, then reload everything, like reopening the window.
+    @objc func refreshAll() {
+        guard !operationRunning else { return }
+        guard let path = repository?.path else { openRepository(); return }
+        operationRunning = true; spinner.startAnimation(nil); footer.stringValue = "Fetching all remotes…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let issue: String? = { do { try Git.fetchAll(at: path); return nil } catch { return error.localizedDescription } }()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.operationRunning = false; self.spinner.stopAnimation(nil)
+                self.fetchIssue = issue.map { "Fetch failed: " + ($0.split(separator: "\n").first.map(String.init) ?? $0) }
+                guard self.repository?.path == path else { return }
+                self.refresh(path: path)
+            }
+        }
+    }
     @objc func loadMore() {
         guard !operationRunning, let repo = repository else { return }
         limit += 500; refresh(path: repo.path, historyOnly: true)
@@ -438,6 +455,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         more.isHidden = commits.count < limit
         if let repo = repository, let issue = repo.worktrees.first(where: { Git.samePath($0.path, repo.path) })?.associationIssue { footer.stringValue += " · " + issue }
         if let operation = repository?.pendingOperation { footer.stringValue += " · \(operation) in progress — File menu: Continue / Abort" }
+        if let fetchIssue { footer.stringValue += " · " + fetchIssue }
         if rows.isEmpty { clearDetails() } else { loadDetails() }
     }
 
@@ -614,7 +632,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         let copy = edit.addItem(withTitle: "Copy Commit Hash", action: #selector(Controller.copyCommitHash), keyEquivalent: "C"); copy.target = controller
         let view = submenu("View")
-        let refresh = view.addItem(withTitle: "Refresh", action: #selector(Controller.refreshNow), keyEquivalent: "r"); refresh.target = controller
+        let refresh = view.addItem(withTitle: "Refresh", action: #selector(Controller.refreshAll), keyEquivalent: "r"); refresh.target = controller
         let find = view.addItem(withTitle: "Find Commit", action: #selector(Controller.focusSearch), keyEquivalent: "f"); find.target = controller
         NSApp.mainMenu = menu
     }

@@ -70,6 +70,12 @@ public enum Git {
         return try Data(contentsOf: out)
     }
 
+    /// Updates every remote-tracking branch and tag from every configured remote and
+    /// drops remote branches deleted upstream. Local branches and workspaces are untouched.
+    public static func fetchAll(at path: String) throws {
+        _ = try run(["-c", "fetch.recurseSubmodules=false", "fetch", "--all", "--prune", "--no-recurse-submodules"], at: path)
+    }
+
     public static func string(_ args: [String], at path: String) throws -> String {
         String(decoding: try run(args, at: path), as: UTF8.self).trimmingCharacters(in: .newlines)
     }

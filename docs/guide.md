@@ -32,7 +32,7 @@ Open the prebuilt **GitGraph Lite.app**, or build it from source with the comman
 - Loads 500 commits initially; **Load more** adds another 500.
 - Checks refs and HEAD every four seconds and refreshes after external commits, branch changes and tags.
 - Remembers the last repository/worktree.
-- ⌘R refreshes, ⌘F searches, ⇧⌘C copies selected commit hashes.
+- ⌘R (or the refresh button) fetches every remote, pruning branches deleted upstream, then reloads everything; if a remote cannot be reached, the footer says so and the local reload still happens. ⌘F searches, ⇧⌘C copies selected commit hashes.
 - Terminal: `open -a "/path/to/GitGraph Lite.app" --args --repo "/path/to/repository"`.
 
 ## Branch browser and compact history 

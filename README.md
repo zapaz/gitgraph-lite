@@ -54,7 +54,7 @@ GitGraph Lite manages the Git side of the workflow alongside your AI tools; you 
 3. Open a local repository with **⌘O**, then **Open** a branch from the branch browser to create or reuse its worktree.
 4. Open that folder in your editor or AI tool. Repeat for another task to work in parallel, and use the graph and diffs to review the results.
 
-**⌘F** searches loaded commits · **⌘R** refreshes · **⌘-click two commits** compares them.
+**⌘F** searches loaded commits · **⌘R** fetches every remote and refreshes · **⌘-click two commits** compares them.
 
 The app uses your installed `/usr/bin/git` and existing Git/SSH credentials. Preferences and action rankings stay on your Mac. No account is required; there is no cloud sync or telemetry. The downloadable app is locally signed and is not notarized by Apple.
 
