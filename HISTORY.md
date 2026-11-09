@@ -23,6 +23,7 @@ All published application versions are available from the linked GitHub releases
 
 | Version & download | Release |
 | --- | --- |
+| [v0.16.1](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.16.1) | GitGraph Lite 0.16.1: draggable dividers between description, files and diff, window size kept on mode switch, scrollers only when needed |
 | [v0.16.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.16.0) | GitGraph Lite 0.16.0: details laid out by diff mode, unified by default, redesigned file tree |
 | [v0.15.1](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.15.1) | GitGraph Lite 0.15.1: bold “w” for the root worktree, branch list that only filters and pins |
 | [v0.15.0](https://github.com/zapaz/gitgraph-lite/releases/tag/v0.15.0) | GitGraph Lite 0.15.0: About popup with an info button, all text in English |
