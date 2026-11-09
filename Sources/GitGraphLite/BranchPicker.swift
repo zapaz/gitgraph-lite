@@ -41,7 +41,7 @@ final class BranchPicker: NSViewController, NSSearchFieldDelegate {
             guard let self, let owner = self.owner else { return }
             owner.allBranchesChanged(self.all)
         }
-        scroll.hasVerticalScroller = true; scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
         let stack = NSStackView(views: [search, all, scroll]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14), stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14), stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 14), stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -14)])

@@ -95,8 +95,8 @@ final class DiffViewer: NSView, NSTableViewDataSource, NSTableViewDelegate {
             let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id)); c.title = text; c.width = width; c.minWidth = width; c.resizingMask = []
             (id.hasPrefix("old") ? table : afterTable).addTableColumn(c)
         }
-        sideScroll.documentView = table; sideScroll.hasVerticalScroller = true; sideScroll.hasHorizontalScroller = true
-        afterScroll.documentView = afterTable; afterScroll.hasVerticalScroller = true; afterScroll.hasHorizontalScroller = true
+        sideScroll.documentView = table; sideScroll.hasVerticalScroller = true; sideScroll.hasHorizontalScroller = true; sideScroll.autohidesScrollers = true
+        afterScroll.documentView = afterTable; afterScroll.hasVerticalScroller = true; afterScroll.hasHorizontalScroller = true; afterScroll.autohidesScrollers = true
         sides.orientation = .horizontal; sides.distribution = .fillEqually; sides.alignment = .top; sides.spacing = 1
         sides.addArrangedSubview(sideScroll); sides.addArrangedSubview(afterScroll)
         for scroll in [sideScroll, afterScroll] {

@@ -63,7 +63,7 @@ final class WorktreeManager: NSWindowController, NSTableViewDataSource, NSTableV
         for (id, title, width) in [("name", "WORKTREE", 170.0), ("branch", "BRANCH / HEAD", 220.0), ("state", "STATE", 180.0), ("path", "LOCATION", 420.0)] {
             let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id)); c.title = title; c.width = width; c.minWidth = 90; table.addTableColumn(c)
         }
-        let scroll = NSScrollView(); scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
+        let scroll = NSScrollView(); scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.autohidesScrollers = true
         let top = NSStackView(views: [summary, refreshButton]); top.distribution = .fill; top.spacing = 20
         summary.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let reveal = NSButton(title: "Show in Finder", target: self, action: #selector(revealSelected))

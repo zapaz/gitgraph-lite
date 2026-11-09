@@ -91,7 +91,7 @@ final class UnifiedDiffView: NSView {
         text.textContainerInset = NSSize(width: 12, height: 10)
         text.isVerticallyResizable = true; text.minSize = .zero
         text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        scroll.documentView = text; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
+        scroll.documentView = text; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.autohidesScrollers = true
         gutter = UnifiedGutter(scrollView: scroll, orientation: .verticalRuler)
         gutter.viewer = self; gutter.clientView = text; gutter.ruleThickness = 114
         scroll.verticalRulerView = gutter; scroll.hasVerticalRuler = true; scroll.rulersVisible = true
