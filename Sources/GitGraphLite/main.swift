@@ -71,7 +71,10 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
     let dateFormatter: DateFormatter = { let f = DateFormatter(); f.locale = .autoupdatingCurrent; f.timeZone = .autoupdatingCurrent; f.dateFormat = "d MMM yyyy HH:mm"; return f }()
 
     init() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1260, height: 840), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        // First launch: a large window, 90% of the screen up to 1600 × 1100. Later launches restore the saved frame.
+        let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
+        let size = NSSize(width: max(900, min(1600, screen.width * 0.9)), height: max(600, min(1100, screen.height * 0.9)))
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "GitGraph Lite"; window.minSize = NSSize(width: 900, height: 600)
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
@@ -211,6 +214,9 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         // Unified diff: description, files and diff on one row (¼, ¼, ½).
         // Side by side: description and files on one row (½ each), the diff below at full width.
         let body = NSView(), bodyDivider = NSBox(); bodyDivider.boxType = .separator
+        // The divider turns from vertical to horizontal with the layout: it must not keep
+        // its 1-point natural width, or it pulls the window down to its minimum size.
+        for axis in [NSLayoutConstraint.Orientation.horizontal, .vertical] { bodyDivider.setContentHuggingPriority(.init(1), for: axis); bodyDivider.setContentCompressionResistancePriority(.init(1), for: axis) }
         for view in [infoRow, bodyDivider, diffViewer] { view.translatesAutoresizingMaskIntoConstraints = false; body.addSubview(view) }
         NSLayoutConstraint.activate([infoRow.leadingAnchor.constraint(equalTo: body.leadingAnchor), infoRow.topAnchor.constraint(equalTo: body.topAnchor),
                                      diffViewer.trailingAnchor.constraint(equalTo: body.trailingAnchor), diffViewer.bottomAnchor.constraint(equalTo: body.bottomAnchor)])
