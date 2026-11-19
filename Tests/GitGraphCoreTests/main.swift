@@ -108,3 +108,4 @@ checkSearchIndex()
 try checkHistorySnapshotReload()
 
 try checkRepositoryItemActions()
+try checkRecentRepositories()

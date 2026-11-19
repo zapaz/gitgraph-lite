@@ -4,6 +4,7 @@ import GitGraphCore
 final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate, NSSplitViewDelegate {
     let table = CommitTableView()
     var actionUsage = ActionUsage()
+    let recentRepositories = RecentRepositories()
     let fileTable = NSTableView()
     let diffViewer = DiffViewer()
     let message = NSTextView()
@@ -105,7 +106,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         repoSubtitle.lineBreakMode = .byTruncatingMiddle
         repoSubtitle.widthAnchor.constraint(lessThanOrEqualToConstant: 190).isActive = true
         repoSubtitle.setContentCompressionResistancePriority(.init(250), for: .horizontal)
-        let open = NSButton(title: "Open repo…", target: self, action: #selector(openRepository)); open.bezelStyle = .rounded; open.toolTip = "Open Repository (⌘O)"
+        let open = NSButton(title: "Open repo ▾", target: self, action: #selector(showOpenMenu(_:))); open.bezelStyle = .rounded; open.toolTip = "Reopen a recent repository, or choose a folder (⌘O)"
         let about = NSButton(image: NSImage(systemSymbolName: "info.circle", accessibilityDescription: "About GitGraph Lite")!, target: self, action: #selector(showAbout))
         about.bezelStyle = .rounded; about.toolTip = "About GitGraph Lite"
         let refresh = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh")!, target: self, action: #selector(refreshAll)); refresh.bezelStyle = .rounded; refresh.toolTip = "Refresh (⌘R): fetch every remote, then reload"
@@ -322,6 +323,26 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
         }
     }
 
+    /// Open repo button: repositories opened before, most recent first, then the folder chooser.
+    @objc func showOpenMenu(_ sender: NSButton) {
+        guard !operationRunning else { return }
+        let recent = recentRepositories.existing
+        guard !recent.isEmpty else { openRepository(); return }
+        let menu = NSMenu(), home = NSHomeDirectory()
+        for path in recent {
+            let item = CallbackMenuItem(URL(fileURLWithPath: path).lastPathComponent) { [weak self] in self?.open(path) }
+            let shown = path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+            let title = NSMutableAttributedString(string: item.title, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+            title.append(NSAttributedString(string: "   " + shown, attributes: [.font: NSFont.menuFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]))
+            item.attributedTitle = title; item.toolTip = path
+            if let current = repository?.path, Git.samePath(current, path) { item.state = .on }
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        menu.addItem(CallbackMenuItem("Choose Folder…") { [weak self] in self?.openRepository() })
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.isFlipped ? sender.bounds.height + 4 : -4), in: sender)
+    }
+
     func open(_ path: String, focusHead: Bool = false) {
         guard !operationRunning else { return }
         worktreeManager?.close(); fetchIssue = nil
@@ -390,7 +411,7 @@ final class Controller: NSWindowController, NSTableViewDataSource, NSTableViewDe
                     self.branchPins = Set(UserDefaults.standard.stringArray(forKey: self.branchPreferenceKey) ?? [])
                     self.updateBranchButton()
                     (self.branchPopover.contentViewController as? BranchPicker)?.rebuild()
-                    UserDefaults.standard.set(repo.path, forKey: "lastRepository")
+                    UserDefaults.standard.set(repo.path, forKey: "lastRepository"); self.recentRepositories.record(repo.path)
                     self.applySearch(selected: selected)
                     if switching || self.table.selectedRowIndexes.isEmpty {
                         if !self.visibleIndices.isEmpty {

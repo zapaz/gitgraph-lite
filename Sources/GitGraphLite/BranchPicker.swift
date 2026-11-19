@@ -13,6 +13,15 @@ final class CallbackButton: NSButton {
     @objc private func invoke() { callback?() }
 }
 
+final class CallbackMenuItem: NSMenuItem {
+    private var callback: (() -> Void)?
+    convenience init(_ title: String, _ callback: @escaping () -> Void) {
+        self.init(title: title, action: #selector(invoke), keyEquivalent: "")
+        self.callback = callback; target = self
+    }
+    @objc private func invoke() { callback?() }
+}
+
 private final class ContextLabel: NSTextField {
     var contextMenuProvider: (() -> NSMenu?)?
     override func menu(for event: NSEvent) -> NSMenu? { contextMenuProvider?() ?? super.menu(for: event) }

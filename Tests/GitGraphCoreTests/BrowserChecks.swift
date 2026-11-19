@@ -118,3 +118,21 @@ func checkInterleavedHistoryGroups() {
     XCTAssertTrue(unfolded.headers.isEmpty)
     print("PASS: interleaved branch histories fold independently, refs/merges stay visible, projected graph has no hidden parents or broken topology, unfolded history has exactly the original commits without synthetic rows")
 }
+
+func checkRecentRepositories() throws {
+    let suite = "GitGraphLiteRecent-" + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let recent = RecentRepositories(defaults: defaults)
+    let base = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+    let a = base.appendingPathComponent("a").path, b = base.appendingPathComponent("b").path
+    try FileManager.default.createDirectory(atPath: a, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: base) }
+    recent.record(a); recent.record(b); recent.record(a + "/")
+    XCTAssertEqual(recent.paths, [a, b])
+    XCTAssertEqual(recent.existing, [a])
+    for i in 0..<20 { recent.record(base.appendingPathComponent("r\(i)").path) }
+    XCTAssertEqual(recent.paths.count, RecentRepositories.limit)
+    XCTAssertEqual(recent.paths.first, base.appendingPathComponent("r19").path)
+    print("PASS: recent repositories keep order, drop duplicates and missing folders, stay capped")
+}
